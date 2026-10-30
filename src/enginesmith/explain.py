@@ -13,7 +13,7 @@ from pathlib import Path
 
 from enginesmith import references, workload
 from enginesmith.brief import reference_argv, reference_kind
-from enginesmith.evaluate import MIN_TIMEOUT, TIMEOUT_FACTOR
+from enginesmith.evaluate import EVALUATION_VERSION, MIN_TIMEOUT, TIMEOUT_FACTOR
 from enginesmith.task import Task
 
 
@@ -136,6 +136,8 @@ def explain(task: Task) -> str:
 
     allowed = g.case_mismatch_percent * task.output_tokens // 100
     out += ['## 4. Correctness gates (every evaluation)', '',
+            f'These are the judging rules of evaluation version {EVALUATION_VERSION} (zones.toml lists what each '
+            'version changed); the run records the version.', '',
             f'1. Control prompts first: a candidate that fails them is rejected within minutes, before timing.',
             '2. A candidate token stream identical to the reference\'s agrees. A stream that differs is replayed '
             'through the reference with the candidate\'s tokens forced (teacher forcing); a step whose token is not '

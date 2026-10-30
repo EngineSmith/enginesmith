@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from enginesmith import acceptance, agents, brief, engine_repo, report
-from enginesmith.evaluate import Evaluator, Plan, ReferenceFailed, Stopped, rows
+from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan, ReferenceFailed, Stopped, rows
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog, kill_group
 from enginesmith.task import REPO, Task
@@ -86,7 +86,7 @@ class Run:
         now = time.time()
         write_json(directory / 'state.json', {
             'phase': 'search', 'created': now, 'deadline': now + task.budget.wall_time_s, 'harness': harness_digest(),
-            'task_digest': task.digest(), 'initial_commit': initial, 'seed_pending': task.evaluate_seed,
+            'evaluation_version': EVALUATION_VERSION, 'task_digest': task.digest(), 'initial_commit': initial, 'seed_pending': task.evaluate_seed,
             'sessions': 0, 'rounds': [], 'current': None, 'incumbent': None, 'latest': None,
             'evaluation_s': [estimate] if estimate else [], 'search_end': None, 'final': None, 'error': None})
         return cls(directory)

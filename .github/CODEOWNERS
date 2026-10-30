@@ -1,0 +1,13 @@
+# Who reviews what (CONTRIBUTING.md, "Zones"). The last matching line wins. Every pull request asks a maintainer;
+# the judging zone and zones.toml are listed on their own so they stay with the maintainers when other paths (for
+# example a platform's backend) get their own owners.
+*                                        @zhangshuibai
+
+/zones.toml                              @zhangshuibai
+/src/enginesmith/acceptance.py           @zhangshuibai
+/src/enginesmith/evaluate.py             @zhangshuibai
+/src/enginesmith/protocol.py             @zhangshuibai
+/src/enginesmith/workload.py             @zhangshuibai
+/src/enginesmith/references/             @zhangshuibai
+/src/enginesmith/task.py                 @zhangshuibai
+/.github/                                @zhangshuibai

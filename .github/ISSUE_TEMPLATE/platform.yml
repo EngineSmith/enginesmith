@@ -1,0 +1,34 @@
+name: Support for a platform or a coding agent
+description: Plan support for another platform (CUDA, ROCm, ...) or another coding agent before the pull request.
+labels: [extension]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What to support
+      options:
+        - A platform (platform module, reference, skill backend)
+        - A reference on a supported platform
+        - A coding agent
+    validations:
+      required: true
+  - type: textarea
+    id: target
+    attributes:
+      label: The hardware and software, with versions
+      description: For a platform, the GPU, the OS and the reference library you propose. For an agent, its name, version and headless command.
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Your plan and the evidence you will bring
+      description: See CONTRIBUTING.md, "Supporting another platform" or "Supporting another coding agent".
+    validations:
+      required: true
+  - type: checkboxes
+    id: doing
+    attributes:
+      label: Who does it
+      options:
+        - label: I will open the pull request myself

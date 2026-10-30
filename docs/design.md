@@ -28,6 +28,12 @@ the reference's measurements (each case's share of the score, the gates, the rou
 budget) and writes it to `plan.md`, stamped with a digest of what it was generated from. `enginesmith run` refuses a
 task whose plan is missing or stale, so the setup agent cannot start a run without having produced it.
 
+The judging rules (the workload, the protocol and its timing, the gates, the score, the acceptance rules, the
+references) carry a version, `EVALUATION_VERSION`, kept with the history of what each version changed in
+`zones.toml`. Every run records the version it started under; the plan, the report and shared engines show it, and
+`enginesmith verify` says when a package was judged under another one. A test fingerprints the judging code, so it
+cannot change without a new version (CONTRIBUTING.md, "Zones").
+
 ## Rounds
 
 | kind | when | starts from |

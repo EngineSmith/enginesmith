@@ -18,9 +18,11 @@ Two rules hold even if you read nothing else:
 
 ## If you are working on EngineSmith itself
 
-Read `CONTRIBUTING.md` first: the ways to contribute (skill knowledge, worked examples, a whole skill, a coding
-agent, a platform or a reference, the harness), the map of the code, and what a change must keep.
+Read `CONTRIBUTING.md` first: the zones, the ways to contribute (skill knowledge, worked examples, a whole skill, a
+coding agent, a platform or a reference, the core), the map of the code, and what a change must keep.
 
+- Know the zone of every file you change (`zones.toml`). Never change the judging zone without an issue the
+  maintainers agreed on; list every new harness file in `zones.toml`; `tests/test_structure.py` checks both.
 - Tests: `uv run pytest` (CPU only). CLI: `uv run enginesmith --help`.
 - The harness (`src/enginesmith`) uses the standard library only; mlx-lm is the built-in reference's dependency.
 - Coding agents cannot change what judges them: the workload, the reference, the gates, the timing, the acceptance

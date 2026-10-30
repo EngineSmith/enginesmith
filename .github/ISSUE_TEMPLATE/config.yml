@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Share an engine you built
+    url: https://github.com/EngineSmith/enginesmith/discussions/categories/engines
+    about: Post the README and the zip that `enginesmith share` writes.
+  - name: Ask a question
+    url: https://github.com/EngineSmith/enginesmith/discussions
+    about: Questions about using EngineSmith.

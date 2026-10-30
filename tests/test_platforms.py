@@ -33,15 +33,17 @@ def test_the_generic_platform_works_anywhere(tmp_path):
 
 def test_the_reference_comes_from_the_task_or_the_platform(tmp_path, model_dir, monkeypatch):
     path = tmp_path / 'task.toml'
-    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[reference]\nkind = "mlx-lm"\n')
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n[reference]\n'
+                    'kind = "mlx-lm"\n')
     task = load_task(path)
     assert brief.reference_argv(task)[1:] == ['-m', 'enginesmith.references.mlx_lm', '--model', str(model_dir)]
-    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n')
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n')
     monkeypatch.setattr(platforms, 'current', lambda: importlib.import_module('enginesmith.platforms.generic'))
     monkeypatch.setattr(brief, 'current', platforms.current)
     with pytest.raises(ValueError, match='no default reference'):
         brief.reference_argv(load_task(path))
-    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[reference]\nkind = "vllm"\n')
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n[reference]\n'
+                    'kind = "vllm"\n')
     with pytest.raises(TaskError, match='reference.kind'):
         load_task(path)
     custom = load_task(write_task(tmp_path, model_dir))

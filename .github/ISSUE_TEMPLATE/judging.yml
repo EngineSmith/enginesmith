@@ -1,0 +1,29 @@
+name: Change to the judging rules
+description: Propose a change to the judging zone (zones.toml), before any pull request.
+labels: [judging]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The judging zone decides whether a candidate is correct and faster: the workload, the engine protocol and its
+        timing, the gates, the score and acceptance rules, the references and the judging defaults. A change makes a
+        new evaluation version, so results before and after do not compare directly. Agree on it here first.
+  - type: textarea
+    id: rule
+    attributes:
+      label: The rule and the change
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why, with evidence
+      description: For example timing noise of an unchanged engine, or a correct engine the gates reject. Name the machine, the model and the versions.
+    validations:
+      required: true
+  - type: textarea
+    id: effect
+    attributes:
+      label: What it does to existing results
+    validations:
+      required: true

@@ -22,7 +22,7 @@ from pathlib import Path
 
 from enginesmith import __version__, engine_repo, references, workload
 from enginesmith.brief import reference_kind
-from enginesmith.evaluate import Evaluator, Plan
+from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog
 from enginesmith.task import Gates, Objective, model_config
@@ -85,7 +85,8 @@ def describe(run, label: str) -> dict:
         'model': {'name': t.model.name, 'source': t.model_source, 'revision': model_revision(t.model),
                   'vocab_size': t.vocab_size, 'files': model_files(t.model)},
         'machine': machine(),
-        'harness': {'version': __version__, 'digest': s['harness'], 'reference': reference_kind(t) or 'custom',
+        'harness': {'version': __version__, 'digest': s['harness'], 'evaluation_version': s.get('evaluation_version'),
+                    'reference': reference_kind(t) or 'custom',
                     'reference_version': references.version(reference_kind(t)) if reference_kind(t) else None},
         'settings': {'lengths': list(t.lengths), 'output_tokens': t.output_tokens, 'controls': t.controls,
                      'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
@@ -121,6 +122,7 @@ def readme(info: dict) -> str:
                  + (f', {mc["accelerator_cores"]} cores' if mc['accelerator_cores'] else '')
                  + f', {(mc["memory_bytes"] or 0) / 2**30:.0f} GiB, {mc["os"]}',
              f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip(),
+             f'- Judged under evaluation version {info["harness"]["evaluation_version"] or "(unrecorded)"}',
              f'- Search: {info["search"]["rounds"]} rounds by {info["search"]["agent"]}'
              + (f', agent cost ${info["search"]["agent_cost_usd"]:.2f}' if info['search']['agent_cost_usd'] else ''),
              '', f'## Speed against mlx-lm ({"held-out final evaluation" if final else "search evaluation"})', '',
@@ -213,6 +215,10 @@ def verify(package: Path, model: Path, *, out: Path | None = None, lengths=None,
     if differ:
         raise ValueError(f'the model files differ from the package\'s ({", ".join(differ[:5])}); download '
                          f'{info["model"]["source"] or info["model"]["name"]} at revision {info["model"]["revision"]}')
+    judged = info['harness'].get('evaluation_version')
+    if judged != EVALUATION_VERSION:
+        log(f'the package was judged under evaluation version {judged}, this harness judges under version '
+            f'{EVALUATION_VERSION} (zones.toml says what changed): its claimed numbers may not compare')
     vocab = model_config(model).get('vocab_size') if (model / 'config.json').is_file() else None
     vocab = vocab or info['model']['vocab_size']
     if use_binary:
@@ -250,6 +256,7 @@ def verify(package: Path, model: Path, *, out: Path | None = None, lengths=None,
     summary = {'package': info['name'], 'machine': machine(), 'passed': result['passed'], 'failure': result['failure'],
                'score': result['score'], 'segments': result['segments'], 'gates': result['gates'],
                'cases': _cases(result), 'claimed': info['final'] or info['search']['evaluation'],
+               'evaluation_version': {'package': judged, 'here': EVALUATION_VERSION},
                'built_from_source': not use_binary}
     (work / 'verify.json').write_text(json.dumps(summary, indent=2))
     (work / 'evaluation' / 'result.json').write_text(json.dumps(result, indent=2))

@@ -1,0 +1,61 @@
+# The zones of the harness (CONTRIBUTING.md, "Zones"). Every file under src/enginesmith is listed in exactly one
+# zone; an entry ending in "/" covers a directory. Everything outside src/enginesmith (skills, docs, tests) is in the
+# open zone. tests/test_structure.py checks this file.
+
+[judging]
+# What decides whether a candidate is correct and faster, together with the judging defaults in
+# src/enginesmith/task.py (Gates, Acceptance, Evaluation). Changed only by the maintainers, after an issue, with a new
+# [[versions]] entry below and EVALUATION_VERSION in src/enginesmith/evaluate.py set to it.
+files = [
+    "src/enginesmith/acceptance.py",          # the score and the acceptance rules
+    "src/enginesmith/evaluate.py",            # controls, paired rounds, teacher-forced judging, gates, timeouts
+    "src/enginesmith/protocol.py",            # the engine protocol and its timing
+    "src/enginesmith/workload.py",            # the Lily prompts and the public, held-out and nonce ranges
+    "src/enginesmith/references/mlx_lm.py",   # the reference on Apple Silicon
+]
+
+[core]
+# Runs everything else. Anyone may change it; the maintainers review it; open an issue first for a new feature.
+files = [
+    "src/enginesmith/__init__.py",
+    "src/enginesmith/agents.py",              # coding sessions; adding an agent's entries is a welcome change
+    "src/enginesmith/brief.py",
+    "src/enginesmith/cli.py",
+    "src/enginesmith/dev_eval.py",
+    "src/enginesmith/engine_repo.py",
+    "src/enginesmith/explain.py",
+    "src/enginesmith/platforms/__init__.py",  # the platform interface
+    "src/enginesmith/processes.py",
+    "src/enginesmith/quality.py",
+    "src/enginesmith/references/__init__.py", # the registry of references
+    "src/enginesmith/report.py",
+    "src/enginesmith/run.py",
+    "src/enginesmith/setup_tools.py",
+    "src/enginesmith/share.py",
+    "src/enginesmith/task.py",                # the task schema; its judging defaults count as judging
+]
+
+[open]
+# Additions that change nothing that exists: one module per platform.
+files = [
+    "src/enginesmith/platforms/generic.py",
+    "src/enginesmith/platforms/macos.py",
+]
+
+[vendored]
+# Third-party code kept unmodified; it changes only by replacement with an upstream release.
+files = ["src/enginesmith/third_party/"]
+
+# The judging rules' versions, oldest first. Runs, reports and shared engines record the version they were judged
+# under; `enginesmith verify` says when a package's version differs from the local one.
+[[versions]]
+version = 1
+date = "2026-10-30"
+fingerprint = "b1a7fc50f0004a5e6aa995db59303b13aa85cdc140e9786522beb71c1018d2ad"
+changes = """The first rules: Lily random-token prompts up to 524,288 tokens with public, held-out and nonce index \
+ranges; 17 control prompts before any timing; 5 paired rounds alternating AB and BA; teacher-forced judging with at \
+most 20% mismatching steps per stream, 10% overall and every mismatching token among the reference's top 100; a \
+candidate request may take 50 times the reference's time (at least 300 s); the score is the weighted geometric mean \
+of the per-case prefill and decode speedups; a candidate is accepted at +1.5% score, +1.5% on one segment (the other \
+segment and the score at most 1% worse) or +4% on one case's segment (the score at most 1% worse); the reference is \
+stock mlx-lm reproducing generate_step."""

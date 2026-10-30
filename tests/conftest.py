@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from enginesmith.agents import MARKERS
+
 TESTS = Path(__file__).resolve().parent
 FAKE_ENGINE = TESTS / 'fake_engine.py'
 FAKE_AGENT = TESTS / 'fake_agent.py'
@@ -12,6 +14,14 @@ VOCAB = 1000
 
 def fake_engine(*flags) -> list[str]:
     return [sys.executable, str(FAKE_ENGINE), '--model', 'unused', '--vocab', str(VOCAB), *flags]
+
+
+@pytest.fixture(autouse=True)
+def outside_any_agent(monkeypatch):
+    """Every test runs as if in a plain terminal, whether it runs in an agent's shell or in CI."""
+    for _, names in MARKERS:
+        for name in names:
+            monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

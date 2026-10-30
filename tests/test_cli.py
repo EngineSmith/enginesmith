@@ -58,10 +58,7 @@ def test_the_agent_launchers():
 
 
 def test_the_current_agent_comes_from_its_markers(monkeypatch):
-    from enginesmith.agents import MARKERS, current
-    for _, names in MARKERS:
-        for name in names:
-            monkeypatch.delenv(name, raising=False)
+    from enginesmith.agents import current
     assert current() is None
     monkeypatch.setenv('CLAUDECODE', '1')
     assert current() == 'claude'

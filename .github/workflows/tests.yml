@@ -1,0 +1,23 @@
+# The CPU test suite, structure checks included (CONTRIBUTING.md, "Zones"), on every pull request and push to main.
+# Linux is enough: the tests need no model, GPU or agent, and the platform modules are tested through their interface.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra quality --extra dev
+      - run: uv run pytest

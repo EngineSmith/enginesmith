@@ -21,6 +21,7 @@ def build(run) -> dict:
                        'decision': record.get('decision')})
     best = run.evaluation(s['incumbent']) if s['incumbent'] else None
     return {'name': t.name, 'model': str(t.model), 'agent': t.agent, 'phase': s['phase'],
+            'evaluation_version': s.get('evaluation_version'),
             'created': s['created'], 'deadline': s['deadline'], 'updated': time.time(),
             'search_end': s['search_end'], 'error': s['error'], 'sessions': s['sessions'],
             'current_round': s['current'], 'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
@@ -105,8 +106,8 @@ th, td {{ border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: le
 th {{ color: var(--muted); font-weight: 600; }}
 </style></head><body>
 <h1>{e(data["name"])}</h1>
-<div class="muted">{e(data["model"])} · agent {e(data["agent"])} · started {_time(data["created"])} ·
-updated {_time(data["updated"])}</div>
+<div class="muted">{e(data["model"])} · agent {e(data["agent"])} · evaluation version
+{e(str(data["evaluation_version"] or "unrecorded"))} · started {_time(data["created"])} · updated {_time(data["updated"])}</div>
 <h2>Status</h2>
 <p>{e(status)}. {data["sessions"]} coding session(s). Best engine: {e(data["incumbent"] or "none yet")}
 {f"(score {_x(best['score'])}, prefill {_x(best['segments']['prefill'])}, decode {_x(best['segments']['decode'])})" if best else ""}.

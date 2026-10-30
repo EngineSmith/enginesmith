@@ -1,47 +1,82 @@
 # Contributing to EngineSmith
 
-This file is written for contributors and for their coding agents: read it before changing anything. Find your kind
-of contribution in the table, then read its section. None of them changes how candidates are judged.
+This file is written for contributors and for their coding agents: read it before changing anything. EngineSmith's
+numbers mean something only if the rules that judge an engine are stable and visible, so the repository is divided
+into zones with different rules. Most contributions add files to the open zone and never touch the rest.
+
+## Zones
+
+`zones.toml` lists every file under `src/enginesmith` in exactly one zone; everything else in the repository (skills,
+docs, tests) is in the open zone.
+
+| zone | what it is | where | who changes it | a pull request needs |
+|---|---|---|---|---|
+| **Judging** | what decides whether a candidate is correct and faster: the workload and the held-out prompts, the engine protocol and its timing, the gates, the score, the acceptance rules, the references, and the judging defaults in `task.py` (`Gates`, `Acceptance`, `Evaluation`) | `workload.py`, `protocol.py`, `evaluate.py`, `acceptance.py`, `references/<name>.py` | the maintainers, after an issue (template: "Change to the judging rules") | the agreement in the issue, evidence, and a new evaluation version |
+| **Core** | everything else that runs: rounds, snapshots and builds, sessions, processes and the memory watchdog, the commands, plans, reports, sharing, task accuracy, the task schema, the platform and reference interfaces | the rest of `src/enginesmith` | anyone; the maintainers review | tests; an issue first for a new feature |
+| **Open** | additions that change nothing that exists: platform modules, skill knowledge, worked examples, whole skills, documentation | `platforms/<name>.py`, `skills/`, `docs/` | anyone | the evidence its section below asks for |
+| **Vendored** | third-party code, kept unmodified | `src/enginesmith/third_party/` | nobody edits it | a replacement by an upstream release |
+
+Engines people build are not part of the repository: they are shared in the Discussions (category Engines) with
+`enginesmith share`.
+
+### Evaluation versions
+
+`EVALUATION_VERSION` in `src/enginesmith/evaluate.py` names the judging rules. A run records it when it starts; the
+plan, the report and every shared engine show it; `enginesmith verify` says when a package was judged under another
+version, because its numbers may not compare. `zones.toml` keeps every version with the date and what changed.
+
+`tests/test_structure.py` fingerprints the judging zone (its files and the judging defaults). Any change there fails
+the test until the same pull request adds a `[[versions]]` entry to `zones.toml` with the next number, the new
+fingerprint (the failing test prints it) and one paragraph on what changed, and sets `EVALUATION_VERSION` to it. A
+judging change can therefore never be small or hidden in a diff.
+
+### What enforces the zones
+
+- **Tests**, on every pull request (`.github/workflows/tests.yml`): the behaviour tests, the platform interface, the
+  skills' format, and `tests/test_structure.py`: every harness file in exactly one zone; the judging fingerprint and
+  version; module-level imports from the standard library only (packages of the optional extras only inside functions
+  of platform modules, references and `quality.py`); no platform-specific code outside `platforms/`.
+- **Review**: `.github/CODEOWNERS` asks a maintainer to review every pull request, and names the judging zone on its
+  own. The pull request template asks which kind of contribution it is and for its evidence.
+- **Branch rules**, once the repository is public: `main` changes only through pull requests whose tests pass and
+  that a code owner approved; no force pushes.
 
 ## Ways to contribute
 
-| contribution | where | example | code? |
+| contribution | zone | where | example |
 |---|---|---|---|
-| Knowledge for an existing backend | `skills/specialized-inference-engine/backends/metal-rust/` | a 4-bit GEMV variant that is faster on M4 Pro, with the measurement; a fusion that did not pay off, as a counterexample | no |
-| A worked example for a model family | `skills/specialized-inference-engine/examples/<model>/` | Qwen3.5 (gated DeltaNet and full attention) from a finished run: model card, decode map, optimization log | no |
-| A whole skill | `skills/<name>/`, used through `engine.skill` | a skill for engines in C++ and Metal, or one specialized in long-context prefill | no |
-| Another coding agent | `src/enginesmith/agents.py` and the docs | Gemini CLI, Qwen Code, OpenCode | a few lines |
-| Another platform | `platforms/`, `references/` and a skill backend | Linux with NVIDIA GPUs and vLLM as the reference; AMD GPUs with ROCm | yes |
-| Another reference on a supported platform | `src/enginesmith/references/` | llama.cpp's Metal backend as a second reference on Apple Silicon | yes |
-| An engine | the Discussions, category Engines (not a pull request) | your Qwen3-8B engine for an M4 Max, packaged by `enginesmith share` | no |
-| A fix or feature in the harness | `src/enginesmith/` | a bug fix; another accuracy benchmark next to MATH-500 and IFEval | yes |
+| Knowledge for an existing backend | open | `skills/specialized-inference-engine/backends/metal-rust/` | a 4-bit GEMV variant that is faster on M4 Pro, with the measurement; a fusion that did not pay off, as a counterexample |
+| A worked example for a model family | open | `skills/specialized-inference-engine/examples/<model>/` | Qwen3.5 (gated DeltaNet and full attention) from a finished run: model card, decode map, optimization log |
+| A whole skill | open | `skills/<name>/`, used through `engine.skill` | a skill for engines in C++ and Metal, or one specialized in long-context prefill |
+| Another coding agent | core (its entries only) | `src/enginesmith/agents.py` and the docs | Gemini CLI, Qwen Code, OpenCode |
+| Another platform | open, plus a reference in judging | `platforms/<name>.py`, `references/<name>.py`, a skill backend | Linux with NVIDIA GPUs and vLLM as the reference; AMD GPUs with ROCm |
+| Another reference on a supported platform | judging | `src/enginesmith/references/<name>.py` | llama.cpp's Metal backend as a second reference on Apple Silicon |
+| A fix or a feature | core | `src/enginesmith/` | a bug fix; another accuracy benchmark next to MATH-500 and IFEval |
+| A change to the judging rules | judging | an issue first | gates that reject a correct engine on some model family, with the evidence |
+| An engine | none (Discussions) | the Discussions, category Engines | your Qwen3-8B engine for an M4 Max, packaged by `enginesmith share` |
 
 Sections below: [skill knowledge](#contributing-skill-knowledge), [a coding agent](#supporting-another-coding-agent),
-[a platform or a reference](#supporting-another-platform), [the harness](#changing-the-harness-itself). Sharing an
-engine is described in the README ("Share an engine, check someone else's"). Open an issue first for anything that changes how candidates
-are judged.
+[a platform or a reference](#supporting-another-platform), [the core](#changing-the-core). Sharing an engine is
+described in the README ("Share an engine, check someone else's").
 
 ## Map of the code
 
-Hardware-agnostic: the core. A new platform does not touch these files.
-
-| module | what it owns |
-|---|---|
-| `src/enginesmith/task.py` | the task file schema (`docs/task.md`) |
-| `src/enginesmith/workload.py` | the Lily prompts and the public / held-out / nonce index ranges |
-| `src/enginesmith/protocol.py` | the engine protocol client and its timing (`docs/protocol.md`) |
-| `src/enginesmith/evaluate.py` | controls, paired AB/BA rounds, teacher-forced judging, gates, speedups |
-| `src/enginesmith/acceptance.py` | the score and the acceptance rules |
-| `src/enginesmith/run.py`, `engine_repo.py`, `agents.py`, `brief.py` | rounds, snapshots, builds, sessions, the session brief |
-| `src/enginesmith/dev_eval.py`, `explain.py`, `report.py`, `share.py`, `quality.py`, `setup_tools.py`, `cli.py` | the commands |
-
-Platform-specific: where a new platform plugs in.
-
-| place | what it holds | today |
+| module | what it owns | zone |
 |---|---|---|
-| `src/enginesmith/platforms/<name>.py` | machine facts, checks, memory budget and watchdog, sleep inhibition, the native-executable check, the default reference | `macos.py` (Apple Silicon), `generic.py` (fallback) |
-| `src/enginesmith/references/<name>.py` | a reference implementation behind the engine protocol | `mlx_lm.py` |
-| `skills/specialized-inference-engine/backends/<name>/` | how to build fast engines on the platform, with measured numbers | `metal-rust/` |
+| `workload.py` | the Lily prompts and the public, held-out and nonce index ranges | judging |
+| `protocol.py` | the engine protocol client and its timing (`docs/protocol.md`) | judging |
+| `evaluate.py` | controls, paired AB/BA rounds, teacher-forced judging, gates, speedups, `EVALUATION_VERSION` | judging |
+| `acceptance.py` | the score and the acceptance rules | judging |
+| `references/<name>.py` | a reference implementation behind the engine protocol (today `mlx_lm.py`) | judging |
+| `task.py` | the task file schema (`docs/task.md`); its `Gates`, `Acceptance` and `Evaluation` defaults count as judging | core |
+| `run.py`, `engine_repo.py`, `agents.py`, `brief.py`, `processes.py` | rounds, snapshots and builds, sessions, the session brief, processes and the watchdog | core |
+| `cli.py`, `setup_tools.py`, `dev_eval.py`, `explain.py`, `report.py`, `share.py`, `quality.py` | the commands | core |
+| `platforms/__init__.py`, `references/__init__.py` | the platform interface and the registry of references | core |
+| `platforms/<name>.py` | one platform: machine facts, checks, memory budget and watchdog, sleep inhibition, the native-executable check, the default reference (today `macos.py`, `generic.py`) | open |
+| `third_party/` | Google's IFEval checker, unmodified | vendored |
+
+The modules are under `src/enginesmith/`. A new platform touches only the open zone, plus a reference if it brings
+one, and the skill backend in `skills/specialized-inference-engine/backends/<name>/`.
 
 ## Supporting another platform
 
@@ -50,7 +85,8 @@ Example: Linux with an NVIDIA GPU. Do the three parts in this order; each has it
 ### 1. A platform module: `src/enginesmith/platforms/<name>.py`
 
 Start from a copy of `platforms/generic.py`, which is the smallest complete implementation, and read the interface in
-`platforms/__init__.py`. Then add the module to `PLATFORMS` there, before `generic`. Every module must define:
+`platforms/__init__.py`. Then add the module to `PLATFORMS` there, before `generic`, and list it under `[open]` in
+`zones.toml`. Every module must define:
 
 | name | contract | NVIDIA hint (not implemented, not measured) |
 |---|---|---|
@@ -91,7 +127,9 @@ It runs as `python -m enginesmith.references.<name> --model MODEL_DIR` and answe
 - `stats` (`reset_peak`): `peak_memory` and `active_memory` in bytes.
 
 Register it in `references/KINDS` (module and Python package, whose version identifies it) and add its package as an
-optional dependency extra in `pyproject.toml`, the way `mlx` is.
+optional dependency extra in `pyproject.toml`, the way `mlx` is. A reference decides what is correct on its platform,
+so it joins the judging zone: list it under `[judging]` in `zones.toml` and add the evaluation version its pull
+request makes (see "Evaluation versions").
 
 Validate it on the platform, and put the evidence in the pull request:
 
@@ -170,13 +208,16 @@ one takes a few lines, plus a real run:
    agent's documentation: DeepSeek Harness 0.2.1 had no permission flags yet, so its launcher sets
    `DSH_PERMISSION_MODE` instead.
 
-## Changing the harness itself
+## Changing the core
 
-- `uv run pytest` must pass (CPU only; no model, GPU or agent). Add tests for what you change.
+- `uv run pytest` must pass (CPU only; no model, GPU or agent). Add tests for what you change. A new module goes into
+  `zones.toml`.
+- Fix bugs directly; open an issue before a new feature, so that its place and its shape are agreed first.
 - The harness (`src/enginesmith`) uses the standard library only; optional extras (`mlx`, `quality`) serve the
-  reference and the accuracy benchmarks.
-- What judges a candidate (the workload, the reference, the gates, the timing, the acceptance rules, the held-out
-  prompts) must stay out of the coding agents' reach. Open an issue before changing how it judges.
+  reference and the accuracy benchmarks. Platform-specific code stays in `platforms/`; the core asks
+  `enginesmith.platforms.current()`.
+- What judges a candidate stays in the judging zone and out of the coding agents' reach. A core change must not
+  change how a candidate is judged; if it has to, it is a judging change (see "Zones").
 - A session's brief carries facts only; strategy belongs in the skill.
 - Keep observations apart from estimates; a missing measurement is null with a reason, never zero.
 - Documentation follows the code: change `docs/` in the same pull request.
