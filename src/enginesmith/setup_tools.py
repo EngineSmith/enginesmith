@@ -3,8 +3,10 @@ machine (prepare). They report what they observed and label every estimate as su
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
@@ -16,6 +18,23 @@ from enginesmith.protocol import Engine, EngineFailure
 from enginesmith.task import AGENT_KINDS, load_task, model_config
 
 
+SANDBOXED = ("this shell cannot write to the home directory (a coding agent's sandbox), but the sessions' agent CLI, "
+             'cargo and uv must: start the run outside the sandbox (approve running this command unsandboxed, or run '
+             'it in your own terminal); do not move HOME or a tool\'s home into the repository instead')
+
+
+def sandboxed() -> bool:
+    """True when this shell cannot write to the home directory, as inside a coding agent's sandbox (Codex and DeepSeek
+    Harness confine commands to the workspace by default)."""
+    try:
+        handle, path = tempfile.mkstemp(dir=Path.home(), prefix='.enginesmith-write-check-')
+    except OSError:
+        return True
+    os.close(handle)
+    os.unlink(path)
+    return False
+
+
 def doctor() -> dict:
     """The platform's machine facts and checks, plus the reference package, git and the coding agents: which CLIs are
     on PATH, and which one the user is talking to (current_agent, the sessions' default)."""
@@ -25,7 +44,7 @@ def doctor() -> dict:
     clis = [name for name in AGENT_KINDS if name != 'command']
     facts.update(python=platform.python_version(), reference=kind and {'kind': kind, 'version': references.version(kind)},
                  git=shutil.which('git'), agents={name: shutil.which(name) for name in clis},
-                 current_agent=agents.current())
+                 current_agent=agents.current(), sandboxed=sandboxed())
     problems, notes = platform_module.checks(facts)
     if kind and not facts['reference']['version']:
         problems.append(f'The {kind} reference is not installed: run `uv sync --extra mlx`.')
@@ -37,6 +56,10 @@ def doctor() -> dict:
     if facts['current_agent'] and not facts['agents'][facts['current_agent']]:
         notes.append(f'This shell runs inside {facts["current_agent"]}, but `{facts["current_agent"]}` is not on PATH; '
                      'the sessions start it by that name.')
+    if facts['sandboxed']:
+        notes.append('This shell is sandboxed (it cannot write to the home directory). The setup commands work here '
+                     '(call .venv/bin/enginesmith if `uv run` cannot open its cache); `enginesmith run` cannot: '
+                     + SANDBOXED + '.')
     if not facts['current_agent']:
         notes.append('No agent marker in this shell (Kimi Code sets none): the task must name agent.kind.')
     return {**facts, 'problems': problems, 'notes': notes}

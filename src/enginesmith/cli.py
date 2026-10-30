@@ -141,8 +141,9 @@ def main(argv=None) -> int:
         elif args.command == 'run':
             from enginesmith.explain import plan_problem
             from enginesmith.run import Run
+            from enginesmith.setup_tools import SANDBOXED, sandboxed
             task = load_task(args.task)
-            if problem := plan_problem(task):
+            if problem := plan_problem(task) or (sandboxed() and SANDBOXED):
                 raise TaskError(problem)
             run = Run.create(task, args.runs_dir)
             if args.detach:
@@ -154,6 +155,9 @@ def main(argv=None) -> int:
                 emit(status(run.dir))
         elif args.command == 'resume':
             from enginesmith.run import Run
+            from enginesmith.setup_tools import SANDBOXED, sandboxed
+            if sandboxed():
+                raise TaskError(SANDBOXED)
             run = Run(args.run)
             if args.continue_search:
                 (run.dir / 'STOP').unlink(missing_ok=True)

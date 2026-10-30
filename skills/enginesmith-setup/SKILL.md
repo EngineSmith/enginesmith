@@ -44,11 +44,20 @@ the task file.
 
 - Claude Code, Codex, Kimi Code, Pi: the CLI's own login, or an API key in the environment (for example
   `ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `DEEPSEEK_API_KEY` for Pi).
+- **Your sandbox.** Codex and DeepSeek Harness confine your commands to the workspace by default; the doctor then
+  reports `sandboxed: true`. The setup steps work there (call `.venv/bin/enginesmith` if `uv run` cannot open its
+  cache), but the run cannot: its sessions' agent CLI, cargo and uv write to the home directory, so `enginesmith run`
+  refuses inside a sandbox. Start it outside: ask for approval to run that one command unsandboxed (your harness's
+  escalation), or give the user the command to run in their own terminal. Never work around the sandbox by moving
+  `HOME`, `DSH_HOME`, `CARGO_HOME` or another tool's home into the repository, and never link or copy credential files
+  into it.
 - DeepSeek Harness: the sessions use its headless profile, which ignores keys saved in the Web UI and reads
   `DEEPSEEK_API_KEY` (or another provider's key) from the environment, then `.env` in the working directory, then
   `$DSH_HOME/.env`; the user puts the key there themselves. It uses the default model chosen in its settings
-  (`agent.model` does not apply). `dsh` must be on PATH: if the user starts it with `npx`, it needs
-  `npm install -g @deepseek-ai/dsh` (ask first).
+  (`agent.model` does not apply). `dsh` must be on PATH: if the user starts it with `npx`, it needs a global
+  install (Node 24.9 or later; ask first). npm 11 skips install scripts unless allowed, among them the one that makes
+  the helper dsh spawns commands with executable, so install it with
+  `npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh`.
 
 ## 2. Agree on the task
 
@@ -215,8 +224,8 @@ noise, why this budget). Do not restate the rules from memory: the plan is gener
 confirmation; if the user changes something, edit the task and run `explain` again. `enginesmith run` refuses a task
 whose `plan.md` is missing or older than the task or `prepare.json`.
 
-The run occupies the GPU and the agent for up to `wall_time`. Check that the agent works headless, from this shell
-(the run inherits its environment): `claude -p "reply ok"`, `codex exec "reply ok"`, `kimi -p "reply ok"`,
+The run occupies the GPU and the agent for up to `wall_time`. It must start outside your sandbox (section 1). Check
+that the agent works headless from the environment the run will start in: `claude -p "reply ok"`, `codex exec "reply ok"`, `kimi -p "reply ok"`,
 `pi --print "reply ok"` or `dsh --profile headless "reply ok"`. The user must log in or set the key themselves. Then:
 
 ```

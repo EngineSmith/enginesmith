@@ -27,10 +27,10 @@ TEMPLATES = {
     # Kimi Code's prompt mode asks for no approval (its "auto" permission policy) and refuses --yolo.
     'kimi': ['kimi', '-p', '{prompt}', '--output-format', 'stream-json'],
     'pi': ['pi', '--print', '--mode', 'json', '--no-session', '{prompt}'],
-    # DeepSeek Harness's one-shot profile; its full-access preset has no sandbox, and it takes its model from its own
-    # settings (agent.model is refused for it).
-    'dsh': ['dsh', '--profile', 'headless', '--json', '--permission-mode', 'danger-full-access',
-            '--approval-policy', 'never', '{prompt}'],
+    # DeepSeek Harness's one-shot profile. DSH_PERMISSION_MODE=danger-full-access turns its sandbox off and its
+    # approvals to never (the released 0.2.1 has no permission flags). It takes its model from its own settings, so
+    # agent.model is refused for it.
+    'dsh': ['env', 'DSH_PERMISSION_MODE=danger-full-access', 'dsh', '--profile', 'headless', '--json', '{prompt}'],
 }
 MODEL_FLAG = ['--model', '{model}']
 # Streaming deltas (Pi's JSON mode emits one per few tokens); the complete message follows in message_end, so the

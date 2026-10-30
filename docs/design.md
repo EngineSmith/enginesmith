@@ -55,10 +55,13 @@ worktree at the starting commit) and `brief/`:
 
 The built-in launchers are `claude -p ... --permission-mode bypassPermissions`, `codex exec
 --dangerously-bypass-approvals-and-sandbox`, `kimi -p` (Kimi Code's prompt mode, which asks for no approvals),
-`pi --print --mode json` and `dsh --profile headless --permission-mode danger-full-access --approval-policy never`
-(DeepSeek Harness); `kind = "command"` takes any argv. By default a task uses the agent the user is talking to:
+`pi --print --mode json` and `DSH_PERMISSION_MODE=danger-full-access dsh --profile headless --json` (DeepSeek
+Harness); `kind = "command"` takes any argv. By default a task uses the agent the user is talking to:
 `agents.current()` recognizes it by the variables each harness sets for the commands it runs (Kimi Code sets none),
-and the session environment drops those variables so a session does not attach to the user's own session. None of them asks for approval or applies the agent's
+and the session environment drops those variables so a session does not attach to the user's own session. A run
+does not start inside an agent's sandbox (a shell that cannot write to the home directory, as Codex's and DeepSeek
+Harness's are by default): its sessions' agent CLI, cargo and uv write there, so `run` and `resume` refuse and say how
+to start it outside. None of them asks for approval or applies the agent's
 own sandbox: a session builds and runs GPU code. The agent uses the user's own login or API key.
 Inside the session `enginesmith dev-eval` builds `engine/` and runs the evaluation procedure on public prompts. When
 the session ends (the agent exits, the timeout passes or the user stops the run), its process group is stopped and

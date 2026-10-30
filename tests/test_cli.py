@@ -52,7 +52,8 @@ def test_the_agent_launchers():
     pi = argv('pi', None, 'deepseek-flash', workspace)
     assert pi[:5] == ['pi', '--print', '--mode', 'json', '--no-session'] and pi[5:7] == ['--model', 'deepseek-flash']
     dsh = argv('dsh', None, None, workspace)
-    assert dsh[:4] == ['dsh', '--profile', 'headless', '--json'] and 'danger-full-access' in dsh and '/w' in dsh[-1]
+    assert dsh[:6] == ['env', 'DSH_PERMISSION_MODE=danger-full-access', 'dsh', '--profile', 'headless', '--json']
+    assert '/w' in dsh[-1]
     assert argv('command', ['run', '{workspace}', '{prompt}'], None, workspace)[:2] == ['run', '/w']
 
 
@@ -107,3 +108,14 @@ def test_a_run_needs_a_current_plan(tmp_path, model_dir, capsys):
     assert plan_problem(load_task(path)) is None
     path.write_text(path.read_text().replace('sessions = 3', 'sessions = 4'))   # the user changed the task
     assert 'changed since' in plan_problem(load_task(path))
+
+
+def test_a_run_does_not_start_inside_an_agent_sandbox(tmp_path, model_dir, capsys, monkeypatch):
+    from enginesmith import setup_tools
+    path = write_task(tmp_path, model_dir)
+    cli.main(['explain', str(path)])
+    capsys.readouterr()
+    monkeypatch.setattr(setup_tools, 'sandboxed', lambda: True)
+    assert cli.main(['run', str(path), '--runs-dir', str(tmp_path / 'runs')]) == 2
+    assert 'outside the sandbox' in output(capsys)['error'] and not (tmp_path / 'runs').exists()
+    assert cli.main(['resume', str(tmp_path / 'runs' / 'x')]) == 2
