@@ -18,7 +18,7 @@ end-to-end speed of mlx-lm.
 ## Quick start
 
 ```sh
-git clone https://github.com/zhangshuibai/enginesmith && cd enginesmith
+git clone https://github.com/EngineSmith/enginesmith && cd enginesmith
 uv sync --extra mlx --extra quality --extra dev
 ```
 
