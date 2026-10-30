@@ -1,0 +1,15 @@
+# Local environments, models, tasks and runs are not part of the product.
+/.venv/
+/models/
+/tasks/
+/runs/
+/dist/
+/build/
+/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+*.gputrace
+.DS_Store
+/.claude/settings.local.json
+/.cache/

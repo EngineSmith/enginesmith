@@ -1,0 +1,38 @@
+title: "[engine] <model> on <chip>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share an engine you made with EngineSmith. Run `uv run enginesmith share RUN`, paste the package's
+        `README.md` below and attach the `.zip` it wrote. Others can check it on their own Mac with
+        `uv run enginesmith verify PACKAGE.zip --model MODEL_DIR`.
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: mlx-community/Qwen3-0.6B-4bit
+    validations:
+      required: true
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      placeholder: Apple M5 Max, 40 GPU cores, 128 GB
+    validations:
+      required: true
+  - type: textarea
+    id: package
+    attributes:
+      label: Package
+      description: Paste the package's README.md here, then attach the .zip below it.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The zip is the package that `enginesmith share` wrote, with the engine's source.
+          required: true
+        - label: It holds no credentials or private files.
+          required: true

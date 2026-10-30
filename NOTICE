@@ -1,0 +1,13 @@
+EngineSmith
+Copyright 2026 Shuibai Zhang
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party code
+--------------------------------------------------------------------------------
+
+instruction_following_eval (IFEval checker)
+https://github.com/google-research/google-research
+Copyright The Google Research Authors. Apache License 2.0.
+Copied unmodified into src/enginesmith/third_party/instruction_following_eval (see the README there).
