@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -98,6 +99,10 @@ def test_share_creates_nothing_when_it_cannot_post(finished_run, tmp_path, fake_
     assert 'no Discussions category' in result['post_error'] and 'gh auth login' in result['next']
     calls = [json.loads(line)[:2] for line in fake_gh.read_text().splitlines()]
     assert ['repo', 'create'] not in calls and (tmp_path / 'out' / 'test-task-round001' / 'README.md').is_file()
-    monkeypatch.setenv('PATH', '/usr/bin:/bin')   # no gh at all
+    bare = tmp_path / 'no-gh'   # a PATH with what share needs, and no gh (CI machines have one in /usr/bin)
+    bare.mkdir()
+    for tool in ('git', 'tar'):
+        (bare / tool).symlink_to(shutil.which(tool))
+    monkeypatch.setenv('PATH', str(bare))
     result = share(finished_run, out=tmp_path / 'out', post=True)
     assert 'not installed' in result['post_error'] and 'posted' not in result
