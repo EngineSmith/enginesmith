@@ -66,6 +66,29 @@ def test_the_current_agent_comes_from_its_markers(monkeypatch):
     assert current() == 'dsh'
 
 
+def test_each_agent_s_usage_format_is_read(tmp_path):
+    from enginesmith.agents import usage
+    formats = {
+        'dsh': [{'type': 'status', 'phase': 'step_end', 'usage': {'inputTokens': 10, 'outputTokens': 5,
+                                                                'cacheReadTokens': 100, 'cacheWriteTokens': 0}}] * 2,
+        'claude': [{'type': 'system', 'subtype': 'init', 'model': 'claude-x'},
+                   {'type': 'result', 'total_cost_usd': 1.5, 'usage': {
+                       'input_tokens': 7, 'output_tokens': 3, 'cache_read_input_tokens': 40,
+                       'cache_creation_input_tokens': 2}}],
+        'codex': [{'type': 'turn.completed', 'usage': {'input_tokens': 50, 'cached_input_tokens': 30,
+                                                       'output_tokens': 4}}],
+    }
+    expected = {'dsh': (None, 20, 10, 200, 0, None), 'claude': ('claude-x', 7, 3, 40, 2, 1.5),
+                'codex': (None, 20, 4, 30, None, None)}
+    for kind, events in formats.items():
+        log = tmp_path / f'{kind}.log'
+        log.write_text(''.join(json.dumps(e) + '\n' for e in events) + 'a plain line\n')
+        got = usage(log)
+        assert (got['model'], got['input_tokens'], got['output_tokens'], got['cache_read_tokens'],
+                got['cache_write_tokens'], got['cost_usd']) == expected[kind], kind
+    assert set(usage(tmp_path / 'missing.log').values()) == {None}
+
+
 def test_sessions_do_not_inherit_the_parent_agent_s_session(monkeypatch, tmp_path):
     from enginesmith.agents import environment
     monkeypatch.setenv('CLAUDECODE', '1')

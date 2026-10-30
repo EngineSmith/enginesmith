@@ -176,7 +176,7 @@ evaluation's procedure against the local mlx-lm with the package's settings on f
 
 ```
 RUN/
-  task.json task.toml state.json events.jsonl report.json report.html run.log
+  task.json task.toml state.json events.jsonl report.json report.html history.csv run.log
   engine.git/            every snapshot, under refs/rounds/NNN
   build/                 the build worktree
   cache/                 the reference's control tokens
@@ -184,3 +184,12 @@ RUN/
   final/                 final.json evaluation/
   quality/               summary.json, one JSON-lines file per benchmark and arm
 ```
+
+The run records its evolution as it goes, with nothing to switch on: after every round `report.json` (`history`,
+`milestones`) and `history.csv` hold one row per decided round and one for the held-out final, with the minutes since
+the start, the decision and its reason, the score and segment speedups, the incumbent's score, what the agent reported
+about itself (model, input, output and cache tokens, cost; None when it reports nothing), the dev-evals it ran, the
+engine's size in lines and the lines changed, and for every prompt length the speedups, the engine's and the
+reference's time to first token and prefill and decode tokens per second (medians over the paired rounds). The run
+also records the agent CLI's version and digests of the skill and the model card. `enginesmith share` puts the same
+data in the package and its README.

@@ -89,6 +89,25 @@ def changed_files(repository: Path, base: str, commit: str) -> list[str]:
     return [line for line in git('diff', '--name-only', base, commit, cwd=repository).splitlines() if line]
 
 
+EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+
+def _lines(repository: Path, base: str, commit: str) -> tuple[int, int]:
+    added = removed = 0
+    for line in git('diff', '--numstat', base, commit, '--', '.', ':(exclude)*.md', cwd=repository).splitlines():
+        plus, minus, _ = line.split('\t', 2)
+        if plus != '-':  # a binary file
+            added, removed = added + int(plus), removed + int(minus)
+    return added, removed
+
+
+def code_stats(repository: Path, base: str, commit: str) -> dict:
+    """The engine's size at commit (lines of its text files other than Markdown) and the lines added and removed
+    since base."""
+    added, removed = _lines(repository, base, commit)
+    return {'lines': _lines(repository, EMPTY_TREE, commit)[0], 'added': added, 'removed': removed}
+
+
 def _run_logged(argv, cwd: Path, log: Path, timeout: float, env: dict) -> dict:
     started = time.monotonic()
     with open(log, 'ab') as out:

@@ -48,6 +48,20 @@ def harness_digest() -> str:
     return digest.hexdigest()
 
 
+def tree_digest(path: Path | None) -> str | None:
+    """sha256 over a file, or over a directory's files with their relative paths; None without a path."""
+    if path is None:
+        return None
+    path = Path(path)
+    root = path if path.is_dir() else path.parent
+    files = sorted(p for p in path.rglob('*') if p.is_file() and '__pycache__' not in p.parts) if path.is_dir() \
+        else [path]
+    digest = hashlib.sha256()
+    for file in files:
+        digest.update(file.relative_to(root).as_posix().encode() + b'\0' + file.read_bytes())
+    return digest.hexdigest()
+
+
 class RunError(RuntimeError):
     pass
 
@@ -86,7 +100,9 @@ class Run:
         now = time.time()
         write_json(directory / 'state.json', {
             'phase': 'search', 'created': now, 'deadline': now + task.budget.wall_time_s, 'harness': harness_digest(),
-            'evaluation_version': EVALUATION_VERSION, 'task_digest': task.digest(), 'initial_commit': initial, 'seed_pending': task.evaluate_seed,
+            'evaluation_version': EVALUATION_VERSION, 'task_digest': task.digest(),
+            'agent_version': agents.version(task.agent),
+            'inputs': {'skill': tree_digest(task.skill), 'model_card': tree_digest(task.model_card)}, 'initial_commit': initial, 'seed_pending': task.evaluate_seed,
             'sessions': 0, 'rounds': [], 'current': None, 'incumbent': None, 'latest': None,
             'evaluation_s': [estimate] if estimate else [], 'search_end': None, 'final': None, 'error': None})
         return cls(directory)
@@ -270,7 +286,7 @@ class Run:
         finally:
             self.session_registries.remove(registry)
         session = record['session']
-        session['cost_usd'] = agents.cost_usd(self.round_dir(label) / 'session.log')
+        session.update(agents.usage(self.round_dir(label) / 'session.log'))
         self.event(f'round {label}: session ended after {session["duration_s"] / 60:.0f} min'
                    + (' (timeout)' if session['timed_out'] else '') + (' (stopped)' if session['stopped'] else '')
                    + (f' ({session["error"]})' if session.get('error') else ''))
@@ -299,6 +315,7 @@ class Run:
             try:
                 record['snapshot'], large = engine_repo.snapshot(self.repo, work / 'engine', label)
                 record['changed_files'] = engine_repo.changed_files(self.repo, record['base'], record['snapshot'])
+                record['code'] = engine_repo.code_stats(self.repo, record['base'], record['snapshot'])
                 if large:
                     record['files_left_out'] = large
                     self.event(f'round {label}: files over 50 MiB left out of the snapshot: {", ".join(large)}')
@@ -306,6 +323,9 @@ class Run:
                 record.update(snapshot=None, error=f'no snapshot: {exc}')
             if (work / 'brief').exists():
                 shutil.move(work / 'brief', self.round_dir(label) / 'brief')
+            checks = sorted((self.round_dir(label) / 'brief' / 'dev-eval').glob('*.json'))
+            record['dev_evals'] = {'runs': len(checks),
+                                   'passed': sum(1 for path in checks if (read_json(path) or {}).get('passed'))}
             engine_repo.remove_worktree(self.repo, work / 'engine')
             shutil.rmtree(work, ignore_errors=True)
         unchanged = (record['snapshot'] and record['kind'] != 'seed'

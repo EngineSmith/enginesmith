@@ -20,7 +20,8 @@ import time
 import zipfile
 from pathlib import Path
 
-from enginesmith import __version__, engine_repo, references, workload
+from enginesmith import __version__, engine_repo, references, report, workload
+from enginesmith.report import _cases
 from enginesmith.brief import reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
 from enginesmith.platforms import current
@@ -60,11 +61,6 @@ def machine() -> dict:
                                             'memory_bytes')}
 
 
-def _cases(result: dict | None) -> list[dict]:
-    return [{key: case[key] for key in ('id', 'length', 'prefill_speedup', 'decode_speedup', 'mismatches')}
-            for case in (result or {}).get('cases', [])]
-
-
 def describe(run, label: str) -> dict:
     """enginesmith.json for one round of a run."""
     t, s = run.task, run.state
@@ -78,6 +74,7 @@ def describe(run, label: str) -> dict:
             quality = json.loads(path.read_text())
     search = run.evaluation(label)
     costs = [((run.record(r['label']) or {}).get('session') or {}).get('cost_usd') for r in s['rounds']]
+    rows = report.history(run)
     return {
         'format': FORMAT,
         'name': f'{t.name}-round{label}',
@@ -101,11 +98,22 @@ def describe(run, label: str) -> dict:
                                    'segments': final_result['segments'], 'gates': final_result['gates'],
                                    'cases': _cases(final_result)},
         'quality': quality,
+        # The run's evolution, without failure messages (they can hold host paths).
+        'history': [{key: value for key, value in row.items() if key != 'failure_message'} for row in rows],
+        'milestones': report.milestones(run, rows),
     }
 
 
 def _x(value) -> str:
     return f'{value:.2f}x' if isinstance(value, (int, float)) else '-'
+
+
+def _n(value) -> str:
+    return '-' if value is None else f'{value:,.1f}' if isinstance(value, float) else f'{value:,}'
+
+
+def _k(value) -> str:
+    return '-' if value is None else f'{value / 1000:,.0f}k' if value >= 10000 else f'{value:,}'
 
 
 def readme(info: dict) -> str:
@@ -134,6 +142,37 @@ def readme(info: dict) -> str:
         g = final['gates']
         lines += [f'Correctness: {"passed" if final["passed"] else "FAILED"}; {g["total_mismatches"]} of '
                   f'{g["total_steps"]} judged steps mismatch (at most {g["allowed"]} allowed).', '']
+    lines += ['## Speed in absolute terms', '',
+              f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this engine '
+              'and mlx-lm on the same machine.', '',
+              '| prompt tokens | time to first token, ms | prefill tok/s | decode tok/s |', '|---:|---:|---:|---:|']
+    lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} (mlx-lm {_n(c["reference_ttft_ms"])}) | '
+              f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
+              f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
+    lines.append('')
+    ms, history = info.get('milestones') or {}, [r for r in info.get('history') or [] if r['kind'] != 'final']
+    if history:
+        reached = lambda key, what: (f'{what}: round {ms[key]["round"]}, {ms[key]["minutes"]:.0f} min after the start'
+                                     if ms.get(key) else f'{what}: not reached')
+        lines += ['## How the search went', '',
+                  f'- {ms["sessions"]} coding sessions by {ms["agent"]} {ms["agent_version"] or ""}'.rstrip()
+                  + (f' ({", ".join(ms["agent_models"])})' if ms['agent_models'] else '')
+                  + f'; the search took {ms["search_minutes"]:.0f} min.',
+                  f'- {reached("first_correct", "First correct engine")}.',
+                  f'- {reached("reference_matched", "First engine as fast as mlx-lm (score 1.0)")}.',
+                  ('- Agent usage: not reported by the agent.' if ms['total_input_tokens'] is None
+                   and ms['total_cost_usd'] is None else
+                   f'- Agent usage: {_k(ms["total_input_tokens"])} input and {_k(ms["total_output_tokens"])} output '
+                   f'tokens, {_k(ms["total_cache_read_tokens"])} cache reads, '
+                   + (f'${ms["total_cost_usd"]:.2f}' if ms['total_cost_usd'] is not None else 'cost not reported')
+                   + ' (as the agent reported them).'), '',
+                  '| round | kind | outcome | ended, min | score | prefill | decode | tokens in / out | engine lines |',
+                  '|---|---|---|---:|---:|---:|---:|---:|---:|']
+        lines += [f'| {r["round"]} | {r["kind"]} | {"accepted" if r["accepted"] else "rejected"} ({r["reason"]}) | '
+                  f'{_n(r["ended_min"])} | {_x(r["score"])} | {_x(r["prefill"])} | {_x(r["decode"])} | '
+                  f'{_k(r["input_tokens"])} / {_k(r["output_tokens"])} | {_n(r["engine_lines"])} |' for r in history]
+        lines += ['', '`history.csv` has every round with every prompt length; `enginesmith.json` has the same and '
+                  'more.', '']
     quality = info['quality']
     if quality:
         lines += ['## Task accuracy (greedy decoding)', '', '| benchmark | mlx-lm | this engine |', '|---|---:|---:|']
@@ -177,6 +216,7 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         shutil.copy2(run.round_dir(label) / 'engine', package / 'bin' / 'engine')
     (package / 'enginesmith.json').write_text(json.dumps(info, indent=2))
     (package / 'README.md').write_text(readme(info))
+    (package / 'history.csv').write_text(report.history_csv(info['history'], run.task.lengths))
     zipped = Path(shutil.make_archive(str(package), 'zip', root_dir=root, base_dir=info['name']))
     size = zipped.stat().st_size
     return {'package': str(package), 'zip': str(zipped), 'zip_bytes': size,

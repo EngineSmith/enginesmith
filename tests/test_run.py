@@ -42,6 +42,16 @@ def test_a_run_repairs_then_accepts_improvements_and_runs_the_final(make_run):
     assert notes.startswith('round 003')
     report = json.loads((run.dir / 'report.json').read_text())
     assert report['best']['round'] == '003' and (run.dir / 'report.html').read_text().startswith('<!doctype html>')
+    # The evolution is recorded as the run goes: one row per round, then the held-out final, also as CSV.
+    history = report['history']
+    assert [r['round'] for r in history] == ['001', '002', '003', 'final']
+    assert history[0]['failure'] and history[1]['accepted'] and history[2]['incumbent_score'] > 1.4
+    assert history[1]['engine_lines'] > 0 and history[1]['dev_evals'] == 0
+    assert history[2]['cases'][0]['decode_tok_s'] > 0 and history[2]['cases'][0]['reference_ttft_ms'] > 0
+    assert report['milestones']['first_correct']['round'] == '002'
+    assert report['milestones']['reference_matched']['round'] in ('002', '003')
+    csv_lines = (run.dir / 'history.csv').read_text().splitlines()
+    assert len(csv_lines) == 5 and 'p256_decode_tok_s' in csv_lines[0] and csv_lines[4].startswith('final,')
     held_out = json.loads((run.dir / 'final' / 'evaluation' / 'result.json').read_text())
     assert held_out['windows'] == 'held_out' and held_out['seed'] == json.loads(
         (run.dir / 'final' / 'final.json').read_text())['seed']
@@ -113,6 +123,7 @@ def test_dev_eval_inside_a_session(make_run):
     assert output.startswith('exit 0') and 'PASSED' in output and '| p64 |' in output
     result = json.loads((run.round_dir('001') / 'brief' / 'dev-eval' / '001.json').read_text())
     assert result['passed'] and result['windows'] == 'public' and [c['id'] for c in result['cases']] == ['p64']
+    assert run.record('001')['dev_evals'] == {'runs': 1, 'passed': 1}
 
 
 def test_a_changed_harness_stops_the_evaluations(make_run, monkeypatch):
@@ -155,11 +166,14 @@ def test_the_session_log_keeps_the_output_without_streaming_deltas(make_run):
     assert log == '{"type":"message_end"}\nplain line\n'
 
 
-def test_the_agent_s_reported_cost_is_recorded(make_run):
-    script = ('import json; print(json.dumps({"type": "message_end", "message": {"role": "assistant", '
-              '"usage": {"cost": {"total": 0.25}}}})); print(json.dumps({"type": "message_end", "message": '
-              '{"role": "assistant", "usage": {"cost": {"total": 0.5}}}}))')
+def test_the_agent_s_reported_usage_is_recorded(make_run):
+    script = ('import json; print(json.dumps({"type": "message_end", "message": {"role": "assistant", "model": "m1", '
+              '"usage": {"input": 100, "output": 20, "cost": {"total": 0.25}}}})); print(json.dumps({"type": '
+              '"message_end", "message": {"role": "assistant", "usage": {"input": 50, "cost": {"total": 0.5}}}}))')
     run = make_run({}, agent={'command': [sys.executable, '-c', script]}, budget={'sessions': 1})
     run.drive()
-    assert run.record('001')['session']['cost_usd'] == 0.75
+    session = run.record('001')['session']
+    assert session['cost_usd'] == 0.75 and session['model'] == 'm1'
+    assert session['input_tokens'] == 150 and session['output_tokens'] == 20 and session['cache_read_tokens'] is None
     assert '$0.75' in (run.dir / 'report.html').read_text()
+    assert json.loads((run.dir / 'report.json').read_text())['milestones']['total_input_tokens'] == 150

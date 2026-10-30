@@ -121,26 +121,75 @@ def _copy(source, out) -> None:
     source.close()
 
 
-def cost_usd(log: Path) -> float | None:
-    """The agent's own report of what the session cost, from its JSON output: the sum of Pi's per-message costs, or
-    Claude Code's total_cost_usd. None when the agent's output carries no cost."""
-    total, found = 0.0, False
+USAGE_KEYS = ('input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd')
+
+
+def usage(log: Path) -> dict:
+    """What the session's agent reported about itself in its JSON output: the model, the tokens (input excludes
+    cache reads) and the cost. A value the agent does not report is None. Parsed: Pi (each assistant message_end),
+    DeepSeek Harness (each step_end status), Claude Code (the init event's model; the result event's totals) and
+    Codex (each turn.completed). Kimi Code's output is not parsed."""
+    totals, found, model = dict.fromkeys(USAGE_KEYS, 0), set(), None
+
+    def add(key, value):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            totals[key] += value
+            found.add(key)
     try:
         with open(log, 'rb') as lines:
             for line in lines:
-                if b'"message_end"' not in line[:64] and b'"result"' not in line[:64]:
+                if not line.startswith(b'{'):
                     continue
                 try:
                     event = json.loads(line)
                 except ValueError:
                     continue
-                cost = None
-                if event.get('type') == 'message_end' and (event.get('message') or {}).get('role') == 'assistant':
-                    cost = ((event['message'].get('usage') or {}).get('cost') or {}).get('total')
-                elif event.get('type') == 'result':
-                    cost = event.get('total_cost_usd')
-                if isinstance(cost, (int, float)):
-                    total, found = total + cost, True
+                kind = event.get('type')
+                if kind == 'message_end' and (event.get('message') or {}).get('role') == 'assistant':
+                    message = event['message']
+                    model = message.get('model') or model
+                    u = message.get('usage') or {}
+                    add('input_tokens', u.get('input'))
+                    add('output_tokens', u.get('output'))
+                    add('cache_read_tokens', u.get('cacheRead'))
+                    add('cache_write_tokens', u.get('cacheWrite'))
+                    add('cost_usd', (u.get('cost') or {}).get('total'))
+                elif kind == 'status' and event.get('phase') == 'step_end':
+                    u = event.get('usage') or {}
+                    add('input_tokens', u.get('inputTokens'))
+                    add('output_tokens', u.get('outputTokens'))
+                    add('cache_read_tokens', u.get('cacheReadTokens'))
+                    add('cache_write_tokens', u.get('cacheWriteTokens'))
+                elif kind == 'system' and event.get('subtype') == 'init':
+                    model = event.get('model') or model
+                elif kind == 'result':
+                    u = event.get('usage') or {}
+                    add('input_tokens', u.get('input_tokens'))
+                    add('output_tokens', u.get('output_tokens'))
+                    add('cache_read_tokens', u.get('cache_read_input_tokens'))
+                    add('cache_write_tokens', u.get('cache_creation_input_tokens'))
+                    add('cost_usd', event.get('total_cost_usd'))
+                elif kind == 'turn.completed':
+                    u = event.get('usage') or {}
+                    cached = u.get('cached_input_tokens') or 0
+                    add('input_tokens', u['input_tokens'] - cached if isinstance(u.get('input_tokens'), int) else None)
+                    add('cache_read_tokens', u.get('cached_input_tokens'))
+                    add('output_tokens', u.get('output_tokens'))
     except OSError:
+        pass
+    out = {key: (round(totals[key], 6) if key == 'cost_usd' else totals[key]) if key in found else None
+           for key in USAGE_KEYS}
+    return {'model': model, **out}
+
+
+def version(kind: str) -> str | None:
+    """The agent CLI's own version line (`CLI --version`), or None for a custom command or when it does not say."""
+    if kind not in TEMPLATES:
         return None
-    return round(total, 6) if found else None
+    try:
+        result = subprocess.run([kind, '--version'], capture_output=True, text=True, timeout=60,
+                                stdin=subprocess.DEVNULL)  # a built-in kind is its CLI's name
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = (result.stdout or result.stderr).strip().splitlines()
+    return lines[0][:200] if result.returncode == 0 and lines else None

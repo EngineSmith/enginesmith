@@ -243,8 +243,10 @@ uv run enginesmith status RUN_DIR
 
 It shows the phase, the current round and step, the best engine's score so far, the latest decisions and the time
 left. A round (session, build, evaluation) usually takes one to a few hours, so check every 30 to 60 minutes, not
-more often. `RUN_DIR/report.html` has the full table; `RUN_DIR/rounds/NNN/` has each round's session log
-(`session.log`), brief, build log and evaluation.
+more often. `RUN_DIR/report.html` has the full table and the milestones (first correct engine, first match of the
+reference); `RUN_DIR/history.csv` has every round with every prompt length (time, score, speedups, tokens per second,
+the agent's tokens and cost, the engine's size), updated after each round; `RUN_DIR/rounds/NNN/` has each round's
+session log (`session.log`), brief, build log and evaluation.
 
 - `uv run enginesmith stop RUN_DIR` ends the search after the current step; the best engine still gets its held-out
   final evaluation. `--now` stops everything at once.
@@ -272,8 +274,9 @@ more often. `RUN_DIR/report.html` has the full table; `RUN_DIR/rounds/NNN/` has 
 ## 9. Share it, or check someone else's
 
 - `uv run enginesmith share RUN_DIR` writes `RUN_DIR/share/<name>/` and `<name>.zip`: the engine's source, the binary,
-  `enginesmith.json` and a README with the results. Offer it when a run produced an engine; the user posts the README
-  and the zip in the repository's Discussions (category Engines). It contains no paths, keys or model weights.
+  `enginesmith.json`, `history.csv` and a README with the results, the speeds in tokens per second and how the search
+  went. Offer it when a run produced an engine; the user posts the README and the zip in the repository's Discussions
+  (category Engines). It contains no paths, keys, session logs or model weights.
 - `uv run enginesmith verify PACKAGE.zip --model models/NAME` checks a shared engine on this machine: the model files
   must match the package's (download the repository and revision its README names), then it builds the engine from
   source and runs the correctness checks and paired timing against the local mlx-lm. Tell the user to read the
