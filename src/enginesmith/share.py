@@ -14,8 +14,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -30,6 +32,12 @@ from enginesmith.task import Gates, Objective, model_config
 
 FORMAT = 1
 ATTACHMENT_LIMIT = 25 * 1024 * 1024  # the largest file a GitHub Discussions post accepts
+# Where shared engines are announced: a category of EngineSmith's Discussions.
+DISCUSSIONS = {'owner': 'EngineSmith', 'repository': 'enginesmith', 'category': 'engines'}
+CATEGORIES = ('query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id '
+              'discussionCategories(first: 50) { nodes { id slug } } } }')
+CREATE = ('mutation($repository: ID!, $category: ID!, $title: String!, $body: String!) { createDiscussion(input: '
+          '{repositoryId: $repository, categoryId: $category, title: $title, body: $body}) { discussion { url } } }')
 
 
 def model_files(model: Path) -> dict[str, str]:
@@ -116,8 +124,9 @@ def _k(value) -> str:
     return '-' if value is None else f'{value / 1000:,.0f}k' if value >= 10000 else f'{value:,}'
 
 
-def readme(info: dict) -> str:
-    """The package's README, also the text of a post in the Discussions' Engines category."""
+def readme(info: dict, repository: str | None = None) -> str:
+    """The package's README, also the text of its post in the Discussions' Engines category. With a repository (the
+    package published on GitHub), it links it and verifies from it."""
     m, mc, final = info['model'], info['machine'], info['final']
     results = final or info['search']['evaluation'] or {'cases': []}
     rows = '\n'.join(f'| {c["length"]:,} | {_x(c["prefill_speedup"])} | {_x(c["decode_speedup"])} |'
@@ -131,6 +140,7 @@ def readme(info: dict) -> str:
                  + f', {(mc["memory_bytes"] or 0) / 2**30:.0f} GiB, {mc["os"]}',
              f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip(),
              f'- Judged under evaluation version {info["harness"]["evaluation_version"] or "(unrecorded)"}',
+             *([f'- Source, binary and data: {repository}'] if repository else []),
              f'- Search: {info["search"]["rounds"]} rounds by {info["search"]["agent"]}'
              + (f', agent cost ${info["search"]["agent_cost_usd"]:.2f}' if info['search']['agent_cost_usd'] else ''),
              '', f'## Speed against mlx-lm ({"held-out final evaluation" if final else "search evaluation"})', '',
@@ -171,8 +181,8 @@ def readme(info: dict) -> str:
         lines += [f'| {r["round"]} | {r["kind"]} | {"accepted" if r["accepted"] else "rejected"} ({r["reason"]}) | '
                   f'{_n(r["ended_min"])} | {_x(r["score"])} | {_x(r["prefill"])} | {_x(r["decode"])} | '
                   f'{_k(r["input_tokens"])} / {_k(r["output_tokens"])} | {_n(r["engine_lines"])} |' for r in history]
-        lines += ['', '`history.csv` has every round with every prompt length; `enginesmith.json` has the same and '
-                  'more.', '']
+        lines += ['', f'`history.csv`{" in " + repository if repository else ""} has every round with every prompt '
+                  'length; `enginesmith.json` has the same and more.', '']
     quality = info['quality']
     if quality:
         lines += ['## Task accuracy (greedy decoding)', '', '| benchmark | mlx-lm | this engine |', '|---|---:|---:|']
@@ -187,7 +197,7 @@ def readme(info: dict) -> str:
               '`source/` and compares it with your local mlx-lm):', '', '```sh',
               f'hf download {m["source"] or "<model repository>"}' + (f' --revision {m["revision"]}' if m['revision'] else '')
               + f' --local-dir models/{m["name"]}',
-              f'uv run enginesmith verify {info["name"]}.zip --model models/{m["name"]}', '```', '',
+              f'uv run enginesmith verify {repository or info["name"] + ".zip"} --model models/{m["name"]}', '```', '',
               f'Build it yourself: `{" ".join(info["engine"]["build"])}` in `source/`, then run '
               f'`{info["engine"]["executable"]} --model MODEL_DIR`; it speaks the engine protocol of EngineSmith\'s '
               '`docs/protocol.md` (token ids in, greedy token ids out). Read the source before you run it: it is '
@@ -196,8 +206,63 @@ def readme(info: dict) -> str:
     return '\n'.join(lines)
 
 
-def share(run, label: str | None = None, out: Path | None = None, binary: bool = True) -> dict:
-    """Write the package directory and its zip; returns their paths and size."""
+class PostError(RuntimeError):
+    pass
+
+
+def _gh(*args) -> str:
+    """Run the GitHub CLI with the user's own login."""
+    try:
+        result = subprocess.run(['gh', *args], capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        raise PostError('the GitHub CLI (gh) is not installed') from None
+    if result.returncode != 0:
+        raise PostError(f'gh {" ".join(args[:2])}: {(result.stderr or result.stdout).strip()[-800:]}')
+    return result.stdout
+
+
+def repository_name(info: dict) -> str:
+    return re.sub(r'[^a-z0-9._-]+', '-', f'enginesmith-{info["name"]}'.lower())
+
+
+def _engines_category() -> tuple[str, str]:
+    """The ids of EngineSmith's repository and of its Discussions' Engines category."""
+    found = json.loads(_gh('api', 'graphql', '-f', f'query={CATEGORIES}', '-f', f'owner={DISCUSSIONS["owner"]}',
+                           '-f', f'name={DISCUSSIONS["repository"]}'))
+    repository = (found.get('data') or {}).get('repository') or {}
+    for category in (repository.get('discussionCategories') or {}).get('nodes', []):
+        if category['slug'] == DISCUSSIONS['category']:
+            return repository['id'], category['id']
+    raise PostError(f'{DISCUSSIONS["owner"]}/{DISCUSSIONS["repository"]} has no Discussions category '
+                    f'"{DISCUSSIONS["category"]}" that this account can post in')
+
+
+def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
+    """The package becomes the sharer's GitHub repository, and a post in the Engines category links it."""
+    target, category = _engines_category()  # first, so that nothing is created when the post cannot be made
+    engine_repo.git('init', '-q', '-b', 'main', cwd=package)
+    engine_repo.git('add', '-A', cwd=package)
+    engine_repo.git('commit', '-q', '-m', f'{info["name"]}, an engine built with EngineSmith', cwd=package)
+    _gh('repo', 'create', repository.removeprefix('https://github.com/'), '--private' if private else '--public',
+        '--description', f'A specialized inference engine for {info["model"]["source"] or info["model"]["name"]}, '
+        'built with EngineSmith', '--source', str(package), '--remote', 'origin', '--push')
+    machine = info['machine']['chip'] or info['machine']['accelerator'] or 'an unknown machine'
+    title = f'[engine] {info["model"]["source"] or info["model"]["name"]} on {machine}'
+    with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as body:
+        body.write((package / 'README.md').read_text())
+    try:
+        created = json.loads(_gh('api', 'graphql', '-f', f'query={CREATE}', '-f', f'repository={target}',
+                                 '-f', f'category={category}', '-f', f'title={title}', '-F', f'body=@{body.name}'))
+    finally:
+        os.unlink(body.name)
+    return {'repository': repository, 'discussion': created['data']['createDiscussion']['discussion']['url']}
+
+
+def share(run, label: str | None = None, out: Path | None = None, binary: bool = True, post: bool = False,
+          private: bool = False) -> dict:
+    """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
+    user's GitHub account (public unless private) and a post in EngineSmith's Discussions (category Engines) shows its
+    results and links it; this uses the GitHub CLI and the user's login."""
     label = label or run.state['incumbent']
     if not label or not (run.round_dir(label) / 'engine').is_file():
         raise ValueError('nothing to share: the run has no built engine for that round')
@@ -214,13 +279,30 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     if binary:
         (package / 'bin').mkdir()
         shutil.copy2(run.round_dir(label) / 'engine', package / 'bin' / 'engine')
+    repository, error = None, None
+    if post:
+        try:
+            repository = f'https://github.com/{_gh("api", "user", "--jq", ".login").strip()}/{repository_name(info)}'
+        except PostError as exc:
+            error = exc
     (package / 'enginesmith.json').write_text(json.dumps(info, indent=2))
-    (package / 'README.md').write_text(readme(info))
+    (package / 'README.md').write_text(readme(info, repository))
     (package / 'history.csv').write_text(report.history_csv(info['history'], run.task.lengths))
     zipped = Path(shutil.make_archive(str(package), 'zip', root_dir=root, base_dir=info['name']))
     size = zipped.stat().st_size
-    return {'package': str(package), 'zip': str(zipped), 'zip_bytes': size,
-            'fits_a_discussions_post': size <= ATTACHMENT_LIMIT, 'post_text': str(package / 'README.md')}
+    result = {'package': str(package), 'zip': str(zipped), 'zip_bytes': size,
+              'fits_a_discussions_post': size <= ATTACHMENT_LIMIT}
+    if repository:
+        try:
+            result['posted'] = _publish(package, info, repository, private)
+        except PostError as exc:
+            error = exc
+    if error:
+        result['post_error'] = str(error)
+        result['next'] = ('Install the GitHub CLI (https://cli.github.com), log in with `gh auth login`, and run '
+                          '`enginesmith share` again; or post README.md and the zip in the Discussions (category '
+                          'Engines) yourself.')
+    return result
 
 
 def _unpack(package: Path, work: Path) -> Path:
@@ -238,14 +320,24 @@ def _unpack(package: Path, work: Path) -> Path:
     return work / names.pop()
 
 
-def verify(package: Path, model: Path, *, out: Path | None = None, lengths=None, rounds: int | None = None,
+def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths=None, rounds: int | None = None,
            use_binary: bool = False, reference=None, log=print) -> dict:
-    """Build a shared engine and evaluate it against the local reference; returns and writes the result."""
-    package, model = Path(package).resolve(), Path(model).resolve()
-    stamp = time.strftime('%Y%m%d-%H%M%S')
-    work = Path(out) if out else package.parent / f'{package.name.removesuffix(".zip")}.verify-{stamp}'
-    work.mkdir(parents=True, exist_ok=True)
-    root = _unpack(package, work)
+    """Build a shared engine and evaluate it against the local reference; returns and writes the result. The package
+    is a directory, its zip, or the URL of the repository it was published to."""
+    model, stamp = Path(model).resolve(), time.strftime('%Y%m%d-%H%M%S')
+    remote = str(package).startswith(('https://', 'http://', 'file://'))
+    if remote:
+        name = str(package).rstrip('/').removesuffix('.git').rsplit('/', 1)[-1]
+        work = Path(out) if out else Path.cwd() / f'{name}.verify-{stamp}'
+        work.mkdir(parents=True, exist_ok=True)
+        log(f'cloning {package} ...')
+        subprocess.run(['git', 'clone', '-q', '--depth', '1', str(package), str(work / name)], check=True)
+        root = work / name
+    else:
+        package = Path(package).resolve()
+        work = Path(out) if out else package.parent / f'{package.name.removesuffix(".zip")}.verify-{stamp}'
+        work.mkdir(parents=True, exist_ok=True)
+        root = _unpack(package, work)
     info = json.loads((root / 'enginesmith.json').read_text())
     if info.get('format') != FORMAT:
         raise ValueError(f'unknown package format {info.get("format")}')

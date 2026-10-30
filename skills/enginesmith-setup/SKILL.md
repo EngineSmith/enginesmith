@@ -1,6 +1,6 @@
 ---
 name: enginesmith-setup
-description: Set up, launch and watch an EngineSmith run for a user who wants a specialized inference engine for one model on their own machine. Covers the conversation (model, machine, what to optimize), the task file and model card, checking the reference on this machine, launching the run, monitoring it and explaining the results. Use when a user asks to build, speed up or optimize an inference engine with EngineSmith, or asks about a run's progress.
+description: Lead a user step by step through building a specialized inference engine for one model on their own machine with EngineSmith, and through sharing it. Covers the proposal and the questions (model, goal, scale, agent), the task file and model card, measuring the reference, the plan, launching and watching the run, the results, and publishing the engine to GitHub and EngineSmith's Discussions. Use when a user asks to build, speed up or optimize an inference engine with EngineSmith, asks about a run's progress, or wants to share or check an engine.
 ---
 
 # Setting up an EngineSmith run
@@ -23,6 +23,29 @@ Everything below runs from the repository root. The commands print JSON you can 
 - **Needed from you:** an answer, a confirmation, a login, or nothing.
 
 The user is usually a practitioner: give exact numbers and the reasons behind them, not reassurance.
+
+## The conversation, step by step
+
+Lead the user through these stages in order, one stage at a time. At every decision offer choices, the recommended
+one first and marked as such, each with one line on what it means; use your harness's question tool if it has one,
+otherwise a short numbered list. Do not ask what you can find out yourself (`doctor`, `probe`), and do not ask the
+same thing twice. Everything a run measures is recorded as it runs; never ask whether to record it.
+
+| stage | what you do | what you ask, as choices |
+|---|---|---|
+| 1. The proposal | Right after the user says what they want, run `doctor` (and `probe` if the model is here). Then propose: what EngineSmith will do and how (below), what it takes (hours of this machine, the agent's subscription or API key), and the first questions. | The model, if it is unclear. The goal: balanced; decode (chat, agents); prefill (long documents, RAG); long context; one shape. The scale: a quick trial (3 sessions of up to 45 min, about 3 h); a standard run (12 sessions of up to 2 h, about a day); a long run (24 sessions, up to 48 h). Task accuracy (MATH-500 and IFEval, 100 items each) or not. The agent: you (recommended) or another one on PATH. |
+| 2. Preparation | Download the model (ask first, with its size), write the task and the model card, measure the reference (`prepare`). Say what each step found. | Only what the measurements change, for example lengths that do not fit in memory or a budget that does not fit. |
+| 3. The plan | Run `explain` and show the whole plan (section 6). | Start the run (recommended); change something; stop here. |
+| 4. The run | Launch it outside your sandbox (section 6) and say when each round should end. At each check-in (`status`), say what happened since the last one. | Nothing, unless the run stopped for something the user must fix, such as a login or a key. |
+| 5. The results | When `status` says `phase: done`: the held-out result, the speeds in tokens per second against mlx-lm, the milestones, and where `report.html` and `history.csv` are (section 8). | Go on to stage 6 in the same reply. |
+| 6. Sharing | Section 9. | Publish it, a public repository of the user's GitHub account and a post in EngineSmith's Discussions (recommended); publish with a private repository; only save the package on this machine; not now. |
+| 7. What next | | Continue from the best engine with a new run (more sessions or another goal); check someone else's engine; done. |
+
+The proposal says, in a few lines and in the user's language: fresh sessions of the user's coding agent will write a
+native engine for this model on this Mac (Rust and Metal, guided by the default skill and the model card); EngineSmith
+checks every candidate token by token against stock mlx-lm and times it against mlx-lm on prompts no session has seen;
+a candidate is kept only when it is correct and faster for the user's goal; the best engine gets a held-out final
+evaluation; the run records its whole evolution as it goes; and the engine can be shared in one step at the end.
 
 ## 1. Check the machine
 
@@ -61,7 +84,7 @@ the task file.
 
 ## 2. Agree on the task
 
-Talk with the user until these are clear. Offer the defaults; do not interrogate.
+These are the details behind the questions of stage 1. Offer the defaults; do not interrogate.
 
 1. **The model.** A Hugging Face repo id or a local directory, in MLX format (the reference is mlx-lm). If the user
    names a non-MLX checkpoint, look for its MLX release or an `mlx-community` conversion with the same quantization
@@ -87,8 +110,9 @@ Talk with the user until these are clear. Offer the defaults; do not interrogate
 4. **Correctness.** The defaults (at most 20% mismatching steps per token stream, each mismatching token among the
    reference's top 100 choices, at most 10% overall) accept the numerical near-ties of a correct engine, including
    the expert-routing flips of MoE models, and reject a wrong one. Explain them; change them only if the user asks.
-5. **Budget.** Sessions (default 24), session timeout (default 2 h), wall time (default 48 h). Use the timing from
-   step 5 to say what fits.
+5. **Budget.** Sessions (default 24), session timeout (default 2 h), wall time (default 48 h). The scales of stage 1:
+   a quick trial is `sessions = 3`, `session_timeout = "45m"`, `wall_time = "4h"`; a standard run `12`, `"2h"`,
+   `"36h"`; a long run the defaults. Use the timing from step 5 to say what fits.
 6. **Agent.** You, by default (`current_agent`); say which harness and model the sessions will use. Offer the
    others found on PATH as a short choice, yours first and marked as the default, and switch only if the user picks
    one. Optionally the model (`agent.model`, passed to the CLI's `--model`; not for `dsh`).
@@ -273,11 +297,23 @@ session log (`session.log`), brief, build log and evaluation.
 
 ## 9. Share it, or check someone else's
 
-- `uv run enginesmith share RUN_DIR` writes `RUN_DIR/share/<name>/` and `<name>.zip`: the engine's source, the binary,
-  `enginesmith.json`, `history.csv` and a README with the results, the speeds in tokens per second and how the search
-  went. Offer it when a run produced an engine; the user posts the README and the zip in the repository's Discussions
-  (category Engines). It contains no paths, keys, session logs or model weights.
-- `uv run enginesmith verify PACKAGE.zip --model models/NAME` checks a shared engine on this machine: the model files
-  must match the package's (download the repository and revision its README names), then it builds the engine from
-  source and runs the correctness checks and paired timing against the local mlx-lm. Tell the user to read the
-  source first: it is native code that another user's coding agent wrote.
+Ask as soon as a run has an engine that passed its final evaluation (stage 6). The choices and what they run:
+
+| choice | command | what happens |
+|---|---|---|
+| publish (recommended) | `uv run enginesmith share RUN_DIR` | the package becomes a public repository of the user's GitHub account, and a post in EngineSmith's Discussions (category Engines) shows its README and links it |
+| publish, private repository | `uv run enginesmith share RUN_DIR --private` | the same, with a repository only the user can open |
+| save it here | `uv run enginesmith share RUN_DIR --no-post` | only `RUN_DIR/share/<name>/` and its zip |
+| not now | nothing | it can be shared later |
+
+The package holds the engine's source and binary, `enginesmith.json` (the model's file hashes, the machine, the
+settings, every result), `history.csv` (every round of the run) and a README with the results, the speeds in tokens
+per second and how the search went. It holds no host paths, keys, session logs or model weights. Publishing uses the
+GitHub CLI with the user's own login: if `gh` is missing, offer to install it (https://cli.github.com; ask first), and
+the user logs in themselves with `gh auth login`. Report the repository's and the post's URLs. When `share` returns
+`post_error`, the package is still written: say why, and what `next` says.
+
+To check someone else's engine: `uv run enginesmith verify REPOSITORY_URL --model models/NAME` (or a package's zip).
+The model files must match the package's (download the repository and revision its README names); then it builds
+the engine from source and runs the correctness checks and the paired timing against the local mlx-lm. Tell the user
+to read the source first: it is native code that another user's coding agent wrote.

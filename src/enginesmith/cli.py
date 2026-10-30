@@ -50,6 +50,10 @@ def status(directory: Path) -> dict:
             'rounds': [f'{r["label"]} {r["kind"]}: {"accepted" if r["accepted"] else "rejected"} ({r["reason"]})'
                        for r in s['rounds'][-10:]],
             'final': s['final'], 'recent_events': [json.loads(e).get('message') for e in events],
+            'next': None if s['phase'] != 'done' else (
+                'report the results, then ask the user whether to share the engine (setup skill, stages 5 and 6)'
+                if (s['final'] or {}).get('passed') else
+                'report why no engine passed, then offer a new run (setup skill, stage 7)'),
             'report': str(directory / 'report.html')}
 
 
@@ -91,13 +95,16 @@ def main(argv=None) -> int:
     p.add_argument('--samples', type=int, help='items per benchmark')
     p.add_argument('--max-tokens', type=int, help='output tokens per item')
     p.add_argument('--time-limit', help='for all benchmarks and both arms, e.g. "2h"')
-    p = sub.add_parser('share', help="package a run's engine (source, binary, results) to post in the Discussions")
+    p = sub.add_parser('share', help="publish a run's engine: a repository of your GitHub account with its source, "
+                       "binary and data, and a post in EngineSmith's Discussions (uses gh)")
     p.add_argument('run', type=Path)
     p.add_argument('--round', help='the round to share (default: the best engine)')
     p.add_argument('--out', type=Path, help='where to write the package (default: RUN/share)')
     p.add_argument('--no-binary', action='store_true', help='leave the built binary out (source only)')
+    p.add_argument('--no-post', action='store_true', help='only write the package and its zip; publish nothing')
+    p.add_argument('--private', action='store_true', help='make the repository private (the post is still made)')
     p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local mlx-lm')
-    p.add_argument('package', type=Path, help='a package directory or its zip')
+    p.add_argument('package', help="a package directory, its zip, or its repository's URL")
     p.add_argument('--model', type=Path, required=True, help='the model directory (the same files as the package\'s)')
     p.add_argument('--lengths', help='comma-separated prompt lengths (default: the package\'s)')
     p.add_argument('--rounds', type=int, help='paired rounds (default: the package\'s)')
@@ -208,7 +215,8 @@ def main(argv=None) -> int:
         elif args.command == 'share':
             from enginesmith.run import Run
             from enginesmith.share import share
-            emit(share(Run(args.run), args.round, args.out, binary=not args.no_binary))
+            emit(share(Run(args.run), args.round, args.out, binary=not args.no_binary, post=not args.no_post,
+                       private=args.private))
         elif args.command == 'verify':
             from enginesmith.share import verify
             lengths = [int(n) for n in args.lengths.split(',')] if args.lengths else None

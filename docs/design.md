@@ -166,11 +166,16 @@ afterwards.
 
 `enginesmith share RUN` writes a package (`src/enginesmith/share.py`): the engine's source at its round, the binary
 (unless `--no-binary`), `enginesmith.json` (the model's source, revision and the SHA-256 of every model file, the
-machine, the harness version and digest, the task's settings, the search, the final evaluation and the task accuracy)
-and a README that doubles as a Discussions post, plus a zip of it all. It holds no host path, agent command or
-credential, and no model weights. `enginesmith verify PACKAGE --model DIR` checks the model files against the
-package, builds the engine from the package's source (`--binary` runs the shared binary instead), and runs the formal
-evaluation's procedure against the local mlx-lm with the package's settings on fresh prompts.
+machine, the harness version and digest, the task's settings, the search, the final evaluation, the task accuracy,
+and the run's history and milestones), `history.csv`, and a README that doubles as a Discussions post, plus a zip of
+it all. It holds no host path, agent command, credential, session log or failure message, and no model weights. By
+default it is published with the GitHub CLI and the user's login: it becomes a repository of the user's account
+(`--private` or public) and a post in EngineSmith's Discussions, category Engines, which shows the README and links
+the repository; the category is looked up first, so nothing is created when the post cannot be made. `--no-post`
+only writes it. `enginesmith verify PACKAGE --model DIR` takes a package directory, its zip or its repository's URL,
+checks the model files against the package, builds the engine from the package's source (`--binary` runs the shared
+binary instead), and runs the formal evaluation's procedure against the local mlx-lm with the package's settings on
+fresh prompts.
 
 ## Run directory
 

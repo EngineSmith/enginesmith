@@ -112,7 +112,7 @@ def test_stop_ends_the_search_and_continue_search_resumes_it(make_run, capsys):
     run = Run(run.dir)
     assert outcomes(run) == [('001', 'generate', 'first_passing_candidate')] and run.state['final']['passed']
     status = cli.status(run.dir)
-    assert status['best']['round'] == '001' and not status['driver_running']
+    assert status['best']['round'] == '001' and not status['driver_running'] and 'share' in status['next']
 
 
 def test_dev_eval_inside_a_session(make_run):

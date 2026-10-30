@@ -3,9 +3,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Share an engine you made with EngineSmith. Run `uv run enginesmith share RUN`, paste the package's
-        `README.md` below and attach the `.zip` it wrote. Others can check it on their own Mac with
-        `uv run enginesmith verify PACKAGE.zip --model MODEL_DIR`.
+        `uv run enginesmith share RUN` posts here by itself, with a link to the engine's repository. Use this form
+        only if you shared with `--no-post`: paste the package's `README.md` below and attach the `.zip` it wrote.
+        Others check an engine on their own Mac with `uv run enginesmith verify REPOSITORY_URL --model MODEL_DIR`.
   - type: input
     id: model
     attributes:

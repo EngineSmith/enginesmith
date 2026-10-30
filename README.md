@@ -70,15 +70,20 @@ has the details.
 
 ## Share an engine, check someone else's
 
+When a run is done, your agent asks whether to share the engine. Sharing is one command:
+
 ```sh
-uv run enginesmith share tasks/NAME/runs/RUN                     # a zip with the source, the binary and every result
-uv run enginesmith verify PACKAGE.zip --model models/MODEL_DIR    # build it from source here, compare with your mlx-lm
+uv run enginesmith share tasks/NAME/runs/RUN                       # publish: your repository + a Discussions post
+uv run enginesmith verify https://github.com/USER/REPO --model models/MODEL_DIR   # check someone else's engine here
 ```
 
-Post the zip, with the README the package contains, in the repository's Discussions (category Engines). `verify`
-checks the model files by SHA-256, builds the engine from the package's source and runs the same correctness checks
-and paired timing on your machine, so a shared result never has to be taken on trust. Read the source before you
-run an engine someone else wrote.
+`share` puts the engine's source, its binary and all the run's data (`enginesmith.json`, `history.csv`, a README with
+the results, the speeds in tokens per second and how the search went) in a repository of your GitHub account, and
+posts the README with a link in this repository's Discussions (category Engines). It uses the GitHub CLI and your
+login (`gh auth login`); `--private` makes the repository private, `--no-post` only writes the package locally. The
+package holds no host paths, keys, session logs or model weights. `verify` checks the model files by SHA-256, builds
+the engine from source and runs the same correctness checks and paired timing on your machine, so a shared result
+never has to be taken on trust. Read the source before you run an engine someone else wrote.
 
 ## Documentation
 
