@@ -1,8 +1,25 @@
 # Contributing to EngineSmith
 
-This file is written for contributors and for their coding agents: read it before changing anything. The most
-common contribution is support for another platform (CUDA, ROCm, ...); it needs three new pieces and no change to the
-core.
+This file is written for contributors and for their coding agents: read it before changing anything. Find your kind
+of contribution in the table, then read its section. None of them changes how candidates are judged.
+
+## Ways to contribute
+
+| contribution | where | example | code? |
+|---|---|---|---|
+| Knowledge for an existing backend | `skills/specialized-inference-engine/backends/metal-rust/` | a 4-bit GEMV variant that is faster on M4 Pro, with the measurement; a fusion that did not pay off, as a counterexample | no |
+| A worked example for a model family | `skills/specialized-inference-engine/examples/<model>/` | Qwen3.5 (gated DeltaNet and full attention) from a finished run: model card, decode map, optimization log | no |
+| A whole skill | `skills/<name>/`, used through `engine.skill` | a skill for engines in C++ and Metal, or one specialized in long-context prefill | no |
+| Another coding agent | `src/enginesmith/agents.py` and the docs | Gemini CLI, Qwen Code, OpenCode | a few lines |
+| Another platform | `platforms/`, `references/` and a skill backend | Linux with NVIDIA GPUs and vLLM as the reference; AMD GPUs with ROCm | yes |
+| Another reference on a supported platform | `src/enginesmith/references/` | llama.cpp's Metal backend as a second reference on Apple Silicon | yes |
+| An engine | the Discussions, category Engines (not a pull request) | your Qwen3-8B engine for an M4 Max, packaged by `enginesmith share` | no |
+| A fix or feature in the harness | `src/enginesmith/` | a bug fix; another accuracy benchmark next to MATH-500 and IFEval | yes |
+
+Sections below: [skill knowledge](#contributing-skill-knowledge), [a coding agent](#supporting-another-coding-agent),
+[a platform or a reference](#supporting-another-platform), [the harness](#changing-the-harness-itself). Sharing an
+engine is described in the README ("Share an engine, check someone else's"). Open an issue first for anything that changes how candidates
+are judged.
 
 ## Map of the code
 
@@ -51,6 +68,9 @@ Start from a copy of `platforms/generic.py`, which is the smallest complete impl
 for example with recorded `nvidia-smi` output, so that the suite still passes on any machine.
 
 ### 2. A reference: `src/enginesmith/references/<name>.py`
+
+A second reference on a platform that already has one needs only this part; a task chooses it with
+`[reference] kind`.
 
 The reference decides both what is correct and what "faster" means, so it is the most consequential choice. Use the
 implementation that practitioners on that platform consider the fast standard (for example vLLM, llama.cpp or
@@ -103,6 +123,52 @@ skill's `SKILL.md` and in the status table of `backends/README.md`. English only
 - An end-to-end check before the pull request: `enginesmith doctor` reports no problem; `enginesmith prepare` on a
   small model; a run of two or three sessions on a small dense model (Qwen3-0.6B, for example) that ends with the
   final evaluation. Attach its `report.json`.
+
+## Contributing skill knowledge
+
+The default skill (`skills/specialized-inference-engine/`) is what every coding session reads before it writes a line
+of the engine, so a good page there helps every later run. Pull requests here need no code.
+
+- **Backend knowledge.** Add to the topic file it belongs to (`backends/metal-rust/attention.md`, `prefill.md`,
+  `kernels-gemv-quant.md`, ...): what to do, why, and the measurement that shows it, with the machine, the model and
+  how it was measured. A technique that did not pay off belongs in `counterexamples.md`, with the numbers.
+- **A worked example.** A finished run on another model family becomes `examples/<model>/`, laid out like
+  `examples/lfm2.5/`: a README (the checkpoint and revision, the machine, the reference version, the result from the
+  run's held-out final evaluation), the model card, a decode map (what one decode token launches, in order) and an
+  optimization log (what each accepted round changed and what it gained, from the run's report). Link it from the
+  skill's `SKILL.md`.
+- **A whole skill.** A task can use another skill with `engine.skill`; contribute it as `skills/<name>/` with a
+  `SKILL.md` whose frontmatter names the directory, and add it to `test_both_skills_exist` in
+  `tests/test_skills.py`. It must keep the contract the brief states (the protocol, the build, the native
+  executable) and may change everything else.
+
+For every skill file: every number is measured on a named machine or labelled as an estimate; English only; no host
+paths or private files; each document small enough for one read (under 50 KB); helper scripts use the standard
+library. `tests/test_skills.py` checks these. Strategy belongs here, not in the harness.
+
+## Supporting another coding agent
+
+The sessions run on the user's own coding agent CLI; `claude`, `codex`, `kimi`, `pi` and `dsh` are built in. Adding
+one takes a few lines, plus a real run:
+
+1. `TEMPLATES` in `src/enginesmith/agents.py`: the argv of its one-shot headless mode, with `{prompt}` (and
+   `{workspace}` if it takes the directory as a flag). It must ask for no approval and apply no sandbox of its own
+   (a session builds and runs GPU code), and should print JSON events if it can, so the session log is a full
+   transcript. If it takes a model flag, check that `--model` works or adjust `argv()`.
+2. `MARKERS` in the same file: the environment variables it sets for the commands it runs, so that `enginesmith
+   doctor` reports it as `current_agent` and a task defaults to it. Add them to `PARENT_SESSION` too, so a session
+   never attaches to the user's own session.
+3. `AGENT_KINDS` in `src/enginesmith/task.py` and `AGENT_NAMES` in `src/enginesmith/explain.py`; `cost_usd()` in
+   `agents.py` if its output reports the cost.
+4. Docs: `docs/task.md` (`agent.kind`), `docs/design.md` (the launchers), and section 1 of the setup skill (how to
+   install it, how it authenticates headless, the one-line headless check).
+5. Tests: its argv in `test_the_agent_launchers` and its markers in `test_the_current_agent_comes_from_its_markers`
+   (`tests/test_cli.py`).
+6. A real check before the pull request, with the released version of the agent: its headless check answers; run
+   inside it, `enginesmith doctor` reports it as `current_agent`; a run of two sessions on a small model ends with
+   the final evaluation. Attach the `report.json` and say which version you tested. Released versions can lag the
+   agent's documentation: DeepSeek Harness 0.2.1 had no permission flags yet, so its launcher sets
+   `DSH_PERMISSION_MODE` instead.
 
 ## Changing the harness itself
 

@@ -83,7 +83,7 @@ run an engine someone else wrote.
 ## Documentation
 
 - [How EngineSmith works](docs/design.md)
-- [Contributing, and supporting another platform](CONTRIBUTING.md)
+- [Contributing](CONTRIBUTING.md): skill knowledge, worked examples, coding agents, other platforms and references
 - [The task file](docs/task.md)
 - [The engine protocol](docs/protocol.md)
 - [The setup skill](skills/enginesmith-setup/SKILL.md), for the user's coding agent

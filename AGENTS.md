@@ -18,8 +18,8 @@ Two rules hold even if you read nothing else:
 
 ## If you are working on EngineSmith itself
 
-Read `CONTRIBUTING.md` first: the map of the code, how to support another platform (a platform module, a
-reference, a skill backend) and what a change must keep.
+Read `CONTRIBUTING.md` first: the ways to contribute (skill knowledge, worked examples, a whole skill, a coding
+agent, a platform or a reference, the harness), the map of the code, and what a change must keep.
 
 - Tests: `uv run pytest` (CPU only). CLI: `uv run enginesmith --help`.
 - The harness (`src/enginesmith`) uses the standard library only; mlx-lm is the built-in reference's dependency.
