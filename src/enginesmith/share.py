@@ -29,7 +29,7 @@ from enginesmith.brief import reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog
-from enginesmith.task import Gates, Objective, model_config
+from enginesmith.task import REPO, Gates, Objective, model_config
 
 FORMAT = 1
 ATTACHMENT_LIMIT = 25 * 1024 * 1024  # the largest file a GitHub Discussions post accepts
@@ -214,7 +214,52 @@ def readme(info: dict, repository: str | None = None) -> str:
               + (' `bin/engine` is the author\'s build for their machine.' if info['engine'].get('binary') else ''),
               '',
               '`enginesmith.json` holds every setting and result, and the SHA-256 of each model file.', '']
+    license = info['engine'].get('license', 'none')
+    lines += ['## License', '',
+              (f'{license}, see `LICENSE`. Code adapted from other projects keeps its own license and notices '
+               '(`source/THIRD_PARTY.md` lists it when the agent recorded any).' if license != 'none' else
+               'No license: the author keeps all rights.'), '']
     return '\n'.join(lines)
+
+
+LICENSES = ('MIT', 'Apache-2.0', 'none')
+MIT = '''MIT License
+
+Copyright (c) {year} {holder}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+
+
+def _license_text(license: str, holder: str) -> str | None:
+    """The package's LICENSE: MIT under the sharer's name, Apache-2.0 (EngineSmith's own text), or none."""
+    if license == 'MIT':
+        return MIT.format(year=time.localtime().tm_year, holder=holder)
+    return (REPO / 'LICENSE').read_text() if license == 'Apache-2.0' else None
+
+
+def _holder(repository: str | None) -> str:
+    """Who shares the engine: the GitHub account it is published under, else git's user.name."""
+    if repository:
+        return repository.rstrip('/').split('/')[-2]
+    name = subprocess.run(['git', 'config', 'user.name'], capture_output=True, text=True).stdout.strip()
+    return name or 'the author of this engine'
 
 
 class PostError(RuntimeError):
@@ -272,7 +317,7 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
 
 
 def share(run, label: str | None = None, out: Path | None = None, binary: bool = False, post: bool = False,
-          private: bool = False) -> dict:
+          private: bool = False, license: str = 'MIT') -> dict:
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
     user's GitHub account (public unless private) and a post in EngineSmith's Discussions (category Engines) shows its
     results and links it; this uses the GitHub CLI and the user's login."""
@@ -281,7 +326,9 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         raise ValueError('nothing to share: the run has no built engine for that round')
     record = run.record(label)
     info = describe(run, label)
-    info['engine']['binary'] = binary
+    if license not in LICENSES:
+        raise ValueError(f'license must be one of {", ".join(LICENSES)}')
+    info['engine'].update(binary=binary, license=license)
     root = Path(out) if out else run.dir / 'share'
     package = root / info['name']
     if package.exists():
@@ -299,6 +346,8 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
             repository = f'https://github.com/{_gh("api", "user", "--jq", ".login").strip()}/{repository_name(info)}'
         except PostError as exc:
             error = exc
+    if text := _license_text(license, _holder(repository)):
+        (package / 'LICENSE').write_text(text)
     (package / 'enginesmith.json').write_text(json.dumps(info, indent=2))
     (package / 'README.md').write_text(readme(info, repository))
     (package / 'history.csv').write_text(report.history_csv(info['history'], run.task.lengths))

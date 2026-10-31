@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,13 @@ def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model
     with zipfile.ZipFile(result['zip']) as archive:
         assert 'test-task-round001/enginesmith.json' in archive.namelist()
     assert 'reasoning effort not reported' in readme and 'bin/engine' not in readme
+    license = (package / 'LICENSE').read_text()   # MIT under the sharer's name by default
+    assert license.startswith('MIT License') and 'Copyright (c) 20' in license and 'MIT, see `LICENSE`' in readme
+    assert info['engine']['license'] == 'MIT'
+    share(finished_run, out=tmp_path / 'unlicensed', license='none')
+    assert not (tmp_path / 'unlicensed' / 'test-task-round001' / 'LICENSE').exists()
+    share(finished_run, out=tmp_path / 'apache', license='Apache-2.0')
+    assert 'Apache License' in (tmp_path / 'apache' / 'test-task-round001' / 'LICENSE').read_text()
     with_binary = share(finished_run, out=tmp_path / 'with-binary', binary=True)
     assert (tmp_path / 'with-binary' / 'test-task-round001' / 'bin' / 'engine').is_file() and with_binary['zip_bytes']
     assert 'bin/engine' in (tmp_path / 'with-binary' / 'test-task-round001' / 'README.md').read_text()
@@ -97,6 +105,8 @@ def test_share_publishes_a_repository_and_a_post(finished_run, tmp_path, fake_gh
     assert 'https://github.com/alice/enginesmith-test-task-round001' in body and '## How the search went' in body
     assert 'enginesmith verify https://github.com/alice/enginesmith-test-task-round001' in body
     assert str(tmp_path) not in body
+    license = (tmp_path / 'out' / 'test-task-round001' / 'LICENSE').read_text()
+    assert re.search(r'Copyright \(c\) \d{4} alice\n', license)   # the account it is published under
 
 
 def test_share_creates_nothing_when_it_cannot_post(finished_run, tmp_path, fake_gh, monkeypatch):

@@ -103,6 +103,8 @@ def main(argv=None) -> int:
     p.add_argument('--binary', action='store_true', help='also include the built binary; it holds paths of this '
                    'machine, such as your home directory')
     p.add_argument('--no-post', action='store_true', help='only write the package and its zip; publish nothing')
+    p.add_argument('--license', choices=('MIT', 'Apache-2.0', 'none'), default='MIT',
+                   help="the engine's license, under your name (default: MIT)")
     p.add_argument('--private', action='store_true', help='make the repository private (the post is still made)')
     p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local mlx-lm')
     p.add_argument('package', help="a package directory, its zip, or its repository's URL")
@@ -217,7 +219,7 @@ def main(argv=None) -> int:
             from enginesmith.run import Run
             from enginesmith.share import share
             emit(share(Run(args.run), args.round, args.out, binary=args.binary, post=not args.no_post,
-                       private=args.private))
+                       private=args.private, license=args.license))
         elif args.command == 'verify':
             from enginesmith.share import verify
             lengths = [int(n) for n in args.lengths.split(',')] if args.lengths else None

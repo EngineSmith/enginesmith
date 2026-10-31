@@ -131,6 +131,9 @@ the same way (`{' '.join(reference_argv(task))}`).
   outside it (build caches such as `~/.cargo` are fine).
 - The evaluation prompts are drawn fresh for every request; do not try to find or predict them.
 - Stop every process you start (engines, profilers) before you finish.
+- Copy or adapt code only from permissively licensed projects (MIT, BSD, Apache-2.0 and the like): shared engines
+  are published under MIT by default. Keep their copyright notices, and list each in `engine/THIRD_PARTY.md` with
+  the project, the files and the license.
 '''
 
 

@@ -169,7 +169,10 @@ afterwards.
 and digest, the task's settings, the search with the agent's model and reasoning effort, the final evaluation, the
 task accuracy, and the run's history and milestones), `history.csv`, and a README that doubles as a Discussions post,
 plus a zip of it all. It holds no host path, agent command, credential, session log or failure message, and no model
-weights. `--binary` adds the built binary, which embeds paths of the build machine such as the home directory. By
+weights. `--binary` adds the built binary, which embeds paths of the build machine such as the home directory. The
+package's `LICENSE` is MIT under the sharer's GitHub account (or git user name) by default, `--license Apache-2.0` or
+`none` otherwise; the brief asks the sessions to borrow only permissively licensed code and to list it in
+`THIRD_PARTY.md`. By
 default it is published with the GitHub CLI and the user's login: it becomes a repository of the user's account
 (`--private` or public) and a post in EngineSmith's Discussions, category Engines, which shows the README and links
 the repository; the category is looked up first, so nothing is created when the post cannot be made. `--no-post`

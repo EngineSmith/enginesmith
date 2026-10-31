@@ -299,12 +299,14 @@ session log (`session.log`), brief, build log and evaluation.
 
 ## 9. Share it, or check someone else's
 
-Ask as soon as a run has an engine that passed its final evaluation (stage 6). The user may also ask at any time,
-in any words and language ("share it", "publish my engine"). Then reply before running anything: which engine (the latest finished run whose
-final evaluation passed, its best round and result; ask which one if there are several); what will be published and
-where (a repository `enginesmith-<task>-round<NNN>` of their GitHub account, public unless they choose private, and a
-post in EngineSmith's Discussions with its README); what the package holds and leaves out (below); and what to check
-(anyone can read a public repository and the post; `gh` must be logged in to their account). Then offer the choices:
+Ask as soon as a run has an engine that passed its final evaluation (stage 6). The user may also ask at any time, in
+any words and language ("share it", "publish my engine"). Then reply before running anything: which engine (the latest
+finished run whose final evaluation passed, its best round and result; ask which one if there are several); what will
+be published and where (a repository `enginesmith-<task>-round<NNN>` of their GitHub account, public unless they
+choose private, and a post in EngineSmith's Discussions with its README); the license (MIT in their name by default,
+so anyone may reuse the engine; `--license Apache-2.0` or `--license none` if they prefer); what the package holds and
+leaves out (below); and what to check (anyone can read a public repository and the post; `gh` must be logged in to
+their account). Then offer the choices:
 
 | choice | command | what happens |
 |---|---|---|
