@@ -26,7 +26,7 @@ copies the resolved task into `RUN/task.json` when it starts; nothing changes it
 | `command` | none | with `kind = "command"`: the argv; `{prompt}`, `{workspace}` and `{model}` are replaced. No credentials: the task is copied into every session, so API keys go in the environment or the agent's own configuration (a command that looks like it holds one is refused) |
 | `session_timeout` | `2h` | a session is stopped after this long |
 | **[workload]** | | |
-| `lengths` | `[256, 1024, 4096, 16384]` | prompt lengths of the timed cases, 1 to 524,288 |
+| `lengths` | 4,096 doubling up to the model's context | prompt lengths of the timed cases, 1 to 524,288. Left out: 4,096, 8,192, 16,384 and so on, then the longest prompt that fits the context of `config.json` (`max_position_embeddings`) with the generated tokens, at most 524,288; for a 262,144-token model 4,096 to 131,072 and 262,079 |
 | `output_tokens` | 65 | tokens generated per case: a prefill request of 1 token and a decode request of the rest |
 | `controls` | true | also check the correctness-only control prompts (1 to 4,097 tokens) |
 | `vocab_size` | the model's `config.json` | the bound for prompt token ids |

@@ -197,6 +197,23 @@ def model_config(model: Path) -> dict:
     return {**config, **config['text_config']} if type(config.get('text_config')) is dict else config
 
 
+def max_context(config: dict) -> int | None:
+    """The model's context length as its config.json states it, if it does."""
+    return next((config[k] for k in ('max_position_embeddings', 'max_seq_len', 'seq_length')
+                 if type(config.get(k)) is int), None)
+
+
+def default_lengths(context: int, output_tokens: int) -> list[int]:
+    """The default prompt lengths: doubling from 4,096, then the longest prompt that fits the model's context
+    together with the generated tokens (at most workload.MAX_LENGTH)."""
+    longest = min(context - output_tokens, workload.MAX_LENGTH)
+    lengths, n = [], 4096
+    while n < longest:
+        lengths.append(n)
+        n *= 2
+    return lengths + [longest]
+
+
 def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
     path = Path(path).resolve()
     try:
@@ -267,22 +284,29 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
                         'so set API keys in your environment or in the agent\'s own configuration')
 
     w = _table(data, 'workload', {'lengths', 'output_tokens', 'controls', 'vocab_size'})
-    lengths = w.get('lengths', [256, 1024, 4096, 16384])
-    if (type(lengths) is not list or not lengths or len(set(lengths)) != len(lengths)
-            or not all(type(n) is int and 1 <= n <= workload.MAX_LENGTH for n in lengths)):
-        raise TaskError(f'workload.lengths must be distinct integers in [1, {workload.MAX_LENGTH}]')
     output_tokens = _number(w, 'output_tokens', 65, 2, 8192, 'workload', integer=True)
     controls = w.get('controls', True)
     if type(controls) is not bool:
         raise TaskError('workload.controls must be true or false')
+    config = model_config(model) if check_paths and (model / 'config.json').is_file() else {}
     if 'vocab_size' in w:
         vocab = _number(w, 'vocab_size', None, 2, 2**31, 'workload', integer=True)
     elif check_paths:
-        vocab = model_config(model).get('vocab_size') if (model / 'config.json').is_file() else None
+        vocab = config.get('vocab_size')
         if type(vocab) is not int or vocab < 2:
             raise TaskError('no vocab_size in the model config.json; set workload.vocab_size')
     else:
         vocab = 0
+    if 'lengths' in w:
+        lengths = w['lengths']
+    elif context := max_context(config):
+        lengths = default_lengths(context, output_tokens)
+    else:
+        raise TaskError('the model config.json states no context length (max_position_embeddings); set '
+                        'workload.lengths')
+    if (type(lengths) is not list or not lengths or len(set(lengths)) != len(lengths)
+            or not all(type(n) is int and 1 <= n <= workload.MAX_LENGTH for n in lengths)):
+        raise TaskError(f'workload.lengths must be distinct integers in [1, {workload.MAX_LENGTH}]')
 
     o = _table(data, 'objective', {'prefill', 'decode', 'length_weights'})
     weights = o.get('length_weights', {})

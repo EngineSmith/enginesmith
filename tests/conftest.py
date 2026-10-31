@@ -28,7 +28,8 @@ def outside_any_agent(monkeypatch):
 def model_dir(tmp_path):
     model = tmp_path / 'model'
     model.mkdir()
-    (model / 'config.json').write_text(json.dumps({'vocab_size': VOCAB, 'num_hidden_layers': 2}))
+    (model / 'config.json').write_text(json.dumps({'vocab_size': VOCAB, 'num_hidden_layers': 2,
+                                                        'max_position_embeddings': 32768}))
     return model
 
 

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from conftest import write_task
@@ -11,11 +13,29 @@ def test_a_minimal_task_takes_the_defaults(tmp_path, model_dir, monkeypatch):
     task = load_task(path)
     assert task.model == model_dir and task.vocab_size == 1000 and task.skill == DEFAULT_SKILL
     assert task.build == ('cargo', 'build', '--release') and task.executable == 'target/release/engine'
-    assert task.native and task.agent == 'dsh' and task.lengths == (256, 1024, 4096, 16384)
+    assert task.native and task.agent == 'dsh' and task.lengths == (4096, 8192, 16384, 32703)
     assert task.objective.prefill == task.objective.decode == 0.5
     assert task.gates.case_mismatch_percent == 20 and task.evaluation.rounds == 5
     assert task.budget.session_timeout_s == 7200 and task.budget.wall_time_s == 48 * 3600
 
+
+
+def test_the_default_lengths_double_from_4096_up_to_the_model_context(tmp_path, model_dir, monkeypatch):
+    monkeypatch.setenv('CLAUDECODE', '1')
+    path = tmp_path / 'task.toml'
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n')
+    for context, lengths in ((262144, (4096, 8192, 16384, 32768, 65536, 131072, 262079)),
+                             (40960, (4096, 8192, 16384, 32768, 40895)), (2048, (1983,)),
+                             (1048576, (4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288))):
+        (model_dir / 'config.json').write_text(json.dumps({'vocab_size': 1000, 'text_config': {
+            'max_position_embeddings': context}}))
+        task = load_task(path)
+        assert task.lengths == lengths and not task.objective.length_weights
+    (model_dir / 'config.json').write_text(json.dumps({'vocab_size': 1000}))
+    with pytest.raises(TaskError, match='states no context length'):
+        load_task(path)
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[workload]\nlengths = [512]\n')
+    assert load_task(path).lengths == (512,)
 
 def test_the_agent_defaults_to_the_one_the_user_talks_to(tmp_path, model_dir, monkeypatch):
     path = tmp_path / 'task.toml'
@@ -59,7 +79,8 @@ def test_invalid_tasks_are_refused(tmp_path, model_dir, sections, message):
 
 def test_paths_resolve_next_to_the_task_and_must_exist(tmp_path, model_dir):
     path = tmp_path / 'task.toml'
-    path.write_text('name = "m"\n[model]\npath = "missing"\n[agent]\nkind = "claude"\n[workload]\nvocab_size = 10\n')
+    path.write_text('name = "m"\n[model]\npath = "missing"\n[agent]\nkind = "claude"\n[workload]\nvocab_size = 10\n'
+                    'lengths = [64]\n')
     with pytest.raises(TaskError, match='is not a directory'):
         load_task(path)
     assert load_task(path, check_paths=False).model == tmp_path / 'missing'

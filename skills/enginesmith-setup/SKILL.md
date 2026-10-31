@@ -94,10 +94,10 @@ These are the details behind the questions of stage 1. Offer the defaults; do no
 
    | the user wants | prefill | decode | lengths and weights |
    |---|---|---|---|
-   | a balanced engine (default) | 0.5 | 0.5 | 256, 1024, 4096, 16384, equal |
+   | a balanced engine (default) | 0.5 | 0.5 | leave `lengths` out: 4096 doubling up to the model's context, equal |
    | fast chat or agent replies (decode speed) | 0.2 | 0.8 | 256 to 16384; `output_tokens` 129 or more |
    | fast time to first token, long documents, RAG | 0.8 | 0.2 | 1024 to 65536, more weight on the long ones |
-   | long context | 0.5 | 0.5 | add 65536 to 524288 (if the model supports them), weight 2 to 4 |
+   | long context | 0.5 | 0.5 | the default lengths, weight 2 to 4 on 65536 and longer |
    | one specific shape, e.g. decode at 32K | 0 | 1 | `[32768]` |
 
    Weights are relative. A segment or length with weight 0 is still checked for correctness but not scored.
@@ -130,8 +130,10 @@ uv run enginesmith probe models/NAME
 ```
 
 It reports the architecture facts from `config.json`, the weight bytes, an ESTIMATE of the KV cache per token and
-which prompt lengths should fit in memory. Lengths beyond `max_position_embeddings` are out. Tell the user which
-long lengths are realistic before they choose them.
+which prompt lengths should fit in memory. Lengths beyond `max_position_embeddings` are out. The default lengths
+reach the model's context, so the longest cases dominate the evaluation time (a 256K prefill can take minutes on the
+reference). Tell the user which long lengths are realistic, and drop the ones that do not fit in memory or in the
+budget, before they choose them.
 
 ## 4. Write the task and the model card
 
@@ -156,7 +158,7 @@ kind = "dsh"                       # current_agent from doctor; claude | codex |
 session_timeout = "2h"
 
 [workload]
-lengths = [256, 1024, 4096, 16384]  # prompt tokens, at most 524288
+# lengths = [4096, 8192, 16384]   # left out: 4096 doubling up to the model's context (at most 524288)
 output_tokens = 65                  # tokens generated per case (one prefill request + a decode request of n - 1)
 
 [objective]

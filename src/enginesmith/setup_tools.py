@@ -15,7 +15,7 @@ from enginesmith.brief import reference_argv
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog
 from enginesmith.protocol import Engine, EngineFailure
-from enginesmith.task import AGENT_KINDS, load_task, model_config
+from enginesmith.task import AGENT_KINDS, load_task, max_context, model_config
 
 
 SANDBOXED = ("this shell cannot write to the home directory (a coding agent's sandbox), but the sessions' agent CLI, "
@@ -92,8 +92,7 @@ def probe(model: Path) -> dict:
     full = sum(n for kind, n in kinds.items() if _full_attention(kind))
     kv_per_token = 2 * full * kv_heads * head_dim * 2 if kv_heads and head_dim else None
     weights = sum(p.stat().st_size for p in model.glob('*.safetensors'))
-    max_positions = next((config[k] for k in ('max_position_embeddings', 'max_seq_len', 'seq_length')
-                          if type(config.get(k)) is int), None)
+    max_positions = max_context(config)
     budget = current().memory_budget()
     lengths = {}
     for n in workload.LENGTHS:
