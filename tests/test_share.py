@@ -25,22 +25,26 @@ def finished_run(tmp_path, model_dir, monkeypatch):
     return run
 
 
-def test_share_writes_a_package_without_host_paths(finished_run, tmp_path):
+def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model_dir):
     result = share(finished_run, out=tmp_path / 'out')
     package = tmp_path / 'out' / 'test-task-round001'
     assert result['package'] == str(package) and result['fits_a_discussions_post']
     info = json.loads((package / 'enginesmith.json').read_text())
     assert info['engine']['round'] == '001' and info['final']['passed'] and info['final']['score'] > 1.4
     assert set(info['model']['files']) == {'config.json', 'weights.bin'}
-    assert (package / 'source' / 'engine').is_file() and (package / 'bin' / 'engine').is_file()
+    assert (package / 'source' / 'engine').is_file() and not (package / 'bin').exists()   # a build holds host paths
     readme = (package / 'README.md').read_text()
     assert 'enginesmith verify test-task-round001.zip' in readme and '| 64 |' in readme
     for text in (readme, (package / 'enginesmith.json').read_text()):
         assert str(tmp_path) not in text and 'FAKE_AGENT' not in text and 'fake_agent' not in text
     with zipfile.ZipFile(result['zip']) as archive:
         assert 'test-task-round001/enginesmith.json' in archive.namelist()
-    source_only = share(finished_run, out=tmp_path / 'source-only', binary=False)
-    assert not (tmp_path / 'source-only' / 'test-task-round001' / 'bin').exists() and source_only['zip_bytes'] > 0
+    assert 'reasoning effort not reported' in readme and 'bin/engine' not in readme
+    with_binary = share(finished_run, out=tmp_path / 'with-binary', binary=True)
+    assert (tmp_path / 'with-binary' / 'test-task-round001' / 'bin' / 'engine').is_file() and with_binary['zip_bytes']
+    assert 'bin/engine' in (tmp_path / 'with-binary' / 'test-task-round001' / 'README.md').read_text()
+    with pytest.raises(ValueError, match='no binary'):
+        verify(package, model_dir, out=tmp_path / 'check', use_binary=True, log=lambda m: None)
 
 
 def test_verify_builds_the_shared_source_and_evaluates_it_here(finished_run, tmp_path, model_dir):
@@ -87,6 +91,8 @@ def test_share_publishes_a_repository_and_a_post(finished_run, tmp_path, fake_gh
     calls = [json.loads(line) for line in fake_gh.read_text().splitlines()]
     assert [c[:2] for c in calls] == [['api', 'user'], ['api', 'graphql'], ['repo', 'create'], ['api', 'graphql']]
     assert calls[2][2] == 'alice/enginesmith-test-task-round001' and '--public' in calls[2]
+    title = next(arg for arg in calls[3] if arg.startswith('title='))
+    assert title.startswith('title=[engine] ') and ': test-task-round001, ' in title and title.endswith('x mlx-lm')
     body = fake_gh.with_suffix('.body.md').read_text()
     assert 'https://github.com/alice/enginesmith-test-task-round001' in body and '## How the search went' in body
     assert 'enginesmith verify https://github.com/alice/enginesmith-test-task-round001' in body

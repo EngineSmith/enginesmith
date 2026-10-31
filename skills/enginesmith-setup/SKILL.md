@@ -300,7 +300,7 @@ session log (`session.log`), brief, build log and evaluation.
 ## 9. Share it, or check someone else's
 
 Ask as soon as a run has an engine that passed its final evaluation (stage 6). The user may also ask at any time,
-in any words ("share it", "分享"). Then reply before running anything: which engine (the latest finished run whose
+in any words and language ("share it", "publish my engine"). Then reply before running anything: which engine (the latest finished run whose
 final evaluation passed, its best round and result; ask which one if there are several); what will be published and
 where (a repository `enginesmith-<task>-round<NNN>` of their GitHub account, public unless they choose private, and a
 post in EngineSmith's Discussions with its README); what the package holds and leaves out (below); and what to check
@@ -313,9 +313,11 @@ post in EngineSmith's Discussions with its README); what the package holds and l
 | save it here | `uv run enginesmith share RUN_DIR --no-post` | only `RUN_DIR/share/<name>/` and its zip |
 | not now | nothing | it can be shared later |
 
-The package holds the engine's source and binary, `enginesmith.json` (the model's file hashes, the machine, the
-settings, every result), `history.csv` (every round of the run) and a README with the results, the speeds in tokens
-per second and how the search went. It holds no host paths, keys, session logs or model weights. Publishing uses the
+The package holds the engine's source, `enginesmith.json` (the model's file hashes, the machine, the settings, every
+result), `history.csv` (every round of the run) and a README with the results, the speeds in tokens per second, how
+the search went and the agent's model and reasoning effort. It holds no host paths, keys, session logs or model
+weights. Others build the engine from source; `--binary` adds the built binary, but it holds paths of this machine
+(such as the home directory), so offer it only if the user asks for a binary. Publishing uses the
 GitHub CLI with the user's own login: if `gh` is missing, offer to install it (https://cli.github.com; ask first), and
 the user logs in themselves with `gh auth login`. Report the repository's and the post's URLs. When `share` returns
 `post_error`, the package is still written: say why, and what `next` says.

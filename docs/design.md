@@ -164,11 +164,12 @@ afterwards.
 
 ## Sharing
 
-`enginesmith share RUN` writes a package (`src/enginesmith/share.py`): the engine's source at its round, the binary
-(unless `--no-binary`), `enginesmith.json` (the model's source, revision and the SHA-256 of every model file, the
-machine, the harness version and digest, the task's settings, the search, the final evaluation, the task accuracy,
-and the run's history and milestones), `history.csv`, and a README that doubles as a Discussions post, plus a zip of
-it all. It holds no host path, agent command, credential, session log or failure message, and no model weights. By
+`enginesmith share RUN` writes a package (`src/enginesmith/share.py`): the engine's source at its round,
+`enginesmith.json` (the model's source, revision and the SHA-256 of every model file, the machine, the harness version
+and digest, the task's settings, the search with the agent's model and reasoning effort, the final evaluation, the
+task accuracy, and the run's history and milestones), `history.csv`, and a README that doubles as a Discussions post,
+plus a zip of it all. It holds no host path, agent command, credential, session log or failure message, and no model
+weights. `--binary` adds the built binary, which embeds paths of the build machine such as the home directory. By
 default it is published with the GitHub CLI and the user's login: it becomes a repository of the user's account
 (`--private` or public) and a post in EngineSmith's Discussions, category Engines, which shows the README and links
 the repository; the category is looked up first, so nothing is created when the post cannot be made. `--no-post`

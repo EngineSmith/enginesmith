@@ -13,7 +13,7 @@ from enginesmith import agents
 
 # One row per decided round, then one for the held-out final. The per-case columns follow, for every task length.
 FIELDS = ('round', 'kind', 'base_round', 'started_min', 'ended_min', 'session_min', 'accepted', 'reason', 'failure',
-          'passed', 'score', 'prefill', 'decode', 'incumbent_score', 'agent_model', *agents.USAGE_KEYS,
+          'passed', 'score', 'prefill', 'decode', 'incumbent_score', 'agent_model', 'agent_effort', *agents.USAGE_KEYS,
           'cumulative_cost_usd', 'dev_evals', 'dev_evals_passed', 'engine_lines', 'lines_added', 'lines_removed',
           'changed_files')
 CASE_FIELDS = ('prefill_speedup', 'decode_speedup', 'ttft_ms', 'prefill_tok_s', 'decode_tok_s', 'reference_ttft_ms',
@@ -69,7 +69,8 @@ def history(run) -> list[dict]:
                      'passed': (result or {}).get('passed'), 'score': entry.get('score'),
                      'prefill': ((result or {}).get('segments') or {}).get('prefill'),
                      'decode': ((result or {}).get('segments') or {}).get('decode'), 'incumbent_score': incumbent,
-                     'agent_model': session.get('model'), **{key: session.get(key) for key in agents.USAGE_KEYS},
+                     'agent_model': session.get('model'), 'agent_effort': session.get('effort'),
+                     **{key: session.get(key) for key in agents.USAGE_KEYS},
                      'cumulative_cost_usd': round(cost, 6) if priced else None,
                      'dev_evals': checks.get('runs'), 'dev_evals_passed': checks.get('passed'),
                      'engine_lines': code.get('lines'), 'lines_added': code.get('added'),
@@ -107,6 +108,7 @@ def milestones(run, rows: list[dict]) -> dict:
             **{f'total_{key}': total(key) for key in agents.USAGE_KEYS},
             'agent': run.task.agent, 'agent_version': run.state.get('agent_version'),
             'agent_models': sorted({r['agent_model'] for r in search if r['agent_model']}),
+            'agent_efforts': sorted({r['agent_effort'] for r in search if r['agent_effort']}),
             'inputs': run.state.get('inputs')}
 
 
@@ -194,7 +196,9 @@ def render(data: dict) -> str:
     milestone_text = (
         f'First correct engine: {"round " + m["first_correct"]["round"] + " after " + _n(m["first_correct"]["minutes"]) + " min" if m["first_correct"] else "none yet"}. '
         f'Matched the reference (score 1.0): {"round " + m["reference_matched"]["round"] + " after " + _n(m["reference_matched"]["minutes"]) + " min" if m["reference_matched"] else "not yet"}. '
-        f'Agent: {e(m["agent"])} {e(m["agent_version"] or "")}, {e(", ".join(m["agent_models"]) or "model not reported")}; '
+        f'Agent: {e(agents.NAMES.get(m["agent"], m["agent"]))} {e(m["agent_version"] or "")}; '
+        f'model {e(", ".join(m["agent_models"]) or "not reported")}, reasoning effort '
+        f'{e(", ".join(m.get("agent_efforts") or []) or "not reported")}; '
         f'tokens {_k(m["total_input_tokens"])} in, {_k(m["total_output_tokens"])} out, {_k(m["total_cache_read_tokens"])} '
         f'cache reads; cost {_money(m["total_cost_usd"]) or "not reported"}.')
     quality = data.get('quality') or {}

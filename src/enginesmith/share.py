@@ -3,8 +3,9 @@
 A package is a directory (and a zip of it) that holds what another user needs to build, run and check an engine:
 the engine's source at its round, optionally the binary, enginesmith.json (the model's identity and file hashes, the
 machine, the harness version, the task's settings and every result) and README.md, which doubles as the text of a
-post in the repository's Discussions. It holds no host path, no agent command and no credential, and no model
-weights: the user downloads the same model files, which verify checks by SHA-256.
+post in the repository's Discussions. It holds no agent command, no credential and no model weights (the user
+downloads the same model files, which verify checks by SHA-256), and no host path unless the binary is included:
+a build embeds paths of the machine it was built on, such as the home directory.
 
 verify builds the engine from the package's source (it runs the shared binary only when asked) and evaluates it
 against the local mlx-lm reference with the formal evaluation's procedure, on fresh prompts, on this machine.
@@ -22,7 +23,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from enginesmith import __version__, engine_repo, references, report, workload
+from enginesmith import __version__, agents, engine_repo, references, report, workload
 from enginesmith.report import _cases
 from enginesmith.brief import reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
@@ -124,6 +125,14 @@ def _k(value) -> str:
     return '-' if value is None else f'{value / 1000:,.0f}k' if value >= 10000 else f'{value:,}'
 
 
+def _agent(info: dict) -> str:
+    """The coding agent of the search, with the model and reasoning effort it reported."""
+    ms, kind = info.get('milestones') or {}, info['search']['agent']
+    named = lambda key: ', '.join(ms.get(key) or []) or 'not reported'
+    return (f'{agents.NAMES.get(kind, kind)} {ms.get("agent_version") or ""}'.rstrip()
+            + f' (model {named("agent_models")}, reasoning effort {named("agent_efforts")})')
+
+
 def readme(info: dict, repository: str | None = None) -> str:
     """The package's README, also the text of its post in the Discussions' Engines category. With a repository (the
     package published on GitHub), it links it and verifies from it."""
@@ -140,8 +149,9 @@ def readme(info: dict, repository: str | None = None) -> str:
                  + f', {(mc["memory_bytes"] or 0) / 2**30:.0f} GiB, {mc["os"]}',
              f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip(),
              f'- Judged under evaluation version {info["harness"]["evaluation_version"] or "(unrecorded)"}',
-             *([f'- Source, binary and data: {repository}'] if repository else []),
-             f'- Search: {info["search"]["rounds"]} rounds by {info["search"]["agent"]}'
+             *([f'- Source{", binary" if info["engine"].get("binary") else ""} and data: {repository}']
+               if repository else []),
+             f'- Search: {info["search"]["rounds"]} rounds by {_agent(info)}'
              + (f', agent cost ${info["search"]["agent_cost_usd"]:.2f}' if info['search']['agent_cost_usd'] else ''),
              '', f'## Speed against mlx-lm ({"held-out final evaluation" if final else "search evaluation"})', '',
              f'Score {_x(results.get("score"))}; prefill {_x((results.get("segments") or {}).get("prefill"))}, '
@@ -165,9 +175,8 @@ def readme(info: dict, repository: str | None = None) -> str:
         reached = lambda key, what: (f'{what}: round {ms[key]["round"]}, {ms[key]["minutes"]:.0f} min after the start'
                                      if ms.get(key) else f'{what}: not reached')
         lines += ['## How the search went', '',
-                  f'- {ms["sessions"]} coding sessions by {ms["agent"]} {ms["agent_version"] or ""}'.rstrip()
-                  + (f' ({", ".join(ms["agent_models"])})' if ms['agent_models'] else '')
-                  + f'; the search took {ms["search_minutes"]:.0f} min.',
+                  f'- {ms["sessions"]} coding sessions by {_agent(info)}; the search took '
+                  f'{ms["search_minutes"]:.0f} min.',
                   f'- {reached("first_correct", "First correct engine")}.',
                   f'- {reached("reference_matched", "First engine as fast as mlx-lm (score 1.0)")}.',
                   ('- Agent usage: not reported by the agent.' if ms['total_input_tokens'] is None
@@ -201,7 +210,9 @@ def readme(info: dict, repository: str | None = None) -> str:
               f'Build it yourself: `{" ".join(info["engine"]["build"])}` in `source/`, then run '
               f'`{info["engine"]["executable"]} --model MODEL_DIR`; it speaks the engine protocol of EngineSmith\'s '
               '`docs/protocol.md` (token ids in, greedy token ids out). Read the source before you run it: it is '
-              'native code written by a coding agent. `bin/engine` is the author\'s build for their machine.', '',
+              'native code written by a coding agent.'
+              + (' `bin/engine` is the author\'s build for their machine.' if info['engine'].get('binary') else ''),
+              '',
               '`enginesmith.json` holds every setting and result, and the SHA-256 of each model file.', '']
     return '\n'.join(lines)
 
@@ -247,7 +258,9 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
         '--description', f'A specialized inference engine for {info["model"]["source"] or info["model"]["name"]}, '
         'built with EngineSmith', '--source', str(package), '--remote', 'origin', '--push')
     machine = info['machine']['chip'] or info['machine']['accelerator'] or 'an unknown machine'
-    title = f'[engine] {info["model"]["source"] or info["model"]["name"]} on {machine}'
+    result = info['final'] or info['search']['evaluation'] or {}
+    score = f', {result["score"]:.2f}x mlx-lm' if isinstance(result.get('score'), (int, float)) else ''
+    title = f'[engine] {info["model"]["source"] or info["model"]["name"]} on {machine}: {info["name"]}{score}'
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as body:
         body.write((package / 'README.md').read_text())
     try:
@@ -258,7 +271,7 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
     return {'repository': repository, 'discussion': created['data']['createDiscussion']['discussion']['url']}
 
 
-def share(run, label: str | None = None, out: Path | None = None, binary: bool = True, post: bool = False,
+def share(run, label: str | None = None, out: Path | None = None, binary: bool = False, post: bool = False,
           private: bool = False) -> dict:
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
     user's GitHub account (public unless private) and a post in EngineSmith's Discussions (category Engines) shows its
@@ -268,6 +281,7 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         raise ValueError('nothing to share: the run has no built engine for that round')
     record = run.record(label)
     info = describe(run, label)
+    info['engine']['binary'] = binary
     root = Path(out) if out else run.dir / 'share'
     package = root / info['name']
     if package.exists():
@@ -355,6 +369,8 @@ def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths
     vocab = vocab or info['model']['vocab_size']
     if use_binary:
         executable = root / 'bin' / 'engine'
+        if not executable.is_file():
+            raise ValueError('the package has no binary (bin/engine); verify without --binary builds it from source')
         log('using the shared binary (bin/engine), not a build from source')
     else:
         source = work / 'build'

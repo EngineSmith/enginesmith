@@ -12,7 +12,7 @@ import math
 import os
 from pathlib import Path
 
-from enginesmith import references, workload
+from enginesmith import agents, references, workload
 from enginesmith.brief import reference_argv, reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, MIN_TIMEOUT, TIMEOUT_FACTOR
 from enginesmith.task import Task
@@ -52,9 +52,6 @@ def _architecture(task: Task) -> list[str]:
 def _prepare(task: Task) -> dict:
     path = task.path.parent / 'prepare.json'
     return json.loads(path.read_text()) if path.is_file() else {}
-
-
-AGENT_NAMES = {'claude': 'Claude Code', 'codex': 'Codex CLI', 'kimi': 'Kimi Code', 'pi': 'Pi', 'dsh': 'DeepSeek Harness'}
 
 
 def _stamp(task: Task) -> str:
@@ -166,7 +163,7 @@ def explain(task: Task) -> str:
             '']
 
     agent = (' '.join(task.agent_command) if task.agent == 'command' else
-             f'{AGENT_NAMES[task.agent]} (`{task.agent}`) with '
+             f'{agents.NAMES[task.agent]} (`{task.agent}`) with '
              + (f'model `{task.agent_model}`' if task.agent_model else "the agent's default model"))
     out += ['## 6. How the search evolves', '',
             f'The run is a sequence of rounds; each round is one candidate. A round gets a fresh headless session of '

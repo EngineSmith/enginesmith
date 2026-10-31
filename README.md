@@ -79,13 +79,15 @@ uv run enginesmith share tasks/NAME/runs/RUN                       # publish: yo
 uv run enginesmith verify https://github.com/USER/REPO --model models/MODEL_DIR   # check someone else's engine here
 ```
 
-`share` puts the engine's source, its binary and all the run's data (`enginesmith.json`, `history.csv`, a README with
-the results, the speeds in tokens per second and how the search went) in a repository of your GitHub account, and
-posts the README with a link in this repository's Discussions (category Engines). It uses the GitHub CLI and your
-login (`gh auth login`); `--private` makes the repository private, `--no-post` only writes the package locally. The
-package holds no host paths, keys, session logs or model weights. `verify` checks the model files by SHA-256, builds
-the engine from source and runs the same correctness checks and paired timing on your machine, so a shared result
-never has to be taken on trust. Read the source before you run an engine someone else wrote.
+`share` puts the engine's source and all the run's data (`enginesmith.json`, `history.csv`, a README with the results,
+the speeds in tokens per second, how the search went and which agent, model and reasoning effort ran it) in a
+repository of your GitHub account, and posts the README with a link in this repository's Discussions (category
+Engines). It uses the GitHub CLI and your login (`gh auth login`); `--private` makes the repository private,
+`--no-post` only writes the package locally. The package holds no host paths, keys, session logs or model weights;
+`--binary` adds the built binary, which holds paths of your machine such as your home directory. `verify` checks the
+model files by SHA-256, builds the engine from source and runs the same correctness checks and paired timing on your
+machine, so a shared result never has to be taken on trust. Read the source before you run an engine someone else
+wrote.
 
 ## Documentation
 

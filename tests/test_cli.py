@@ -66,25 +66,41 @@ def test_the_current_agent_comes_from_its_markers(monkeypatch):
     assert current() == 'dsh'
 
 
-def test_each_agent_s_usage_format_is_read(tmp_path):
+def test_each_agent_s_usage_format_is_read(tmp_path, monkeypatch):
     from enginesmith.agents import usage
+    # Codex and Claude Code record the model or the reasoning effort in their own session files.
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex'))
+    monkeypatch.setenv('CLAUDE_CONFIG_DIR', str(tmp_path / 'claude'))
+    rollout = tmp_path / 'codex' / 'sessions' / '2026' / '10' / '31' / 'rollout-2026-10-31-0a1b2c3d-thread.jsonl'
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(''.join(json.dumps(r) + '\n' for r in (
+        {'type': 'session_meta', 'payload': {}},
+        {'type': 'turn_context', 'payload': {'model': 'gpt-a', 'effort': 'low'}},
+        {'type': 'turn_context', 'payload': {'model': 'gpt-b', 'effort': 'high'}})))
+    transcript = tmp_path / 'claude' / 'projects' / '-work' / 'claude-session-1.jsonl'
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(json.dumps({'type': 'assistant', 'effort': 'xhigh'}) + '\n')
     formats = {
+        'pi': [{'type': 'message_end', 'message': {'role': 'assistant', 'model': 'deepseek-flash',
+                                                   'thinkingLevel': 'high', 'usage': {'input': 9, 'output': 1}}}],
         'dsh': [{'type': 'status', 'phase': 'step_end', 'usage': {'inputTokens': 10, 'outputTokens': 5,
                                                                 'cacheReadTokens': 100, 'cacheWriteTokens': 0}}] * 2,
-        'claude': [{'type': 'system', 'subtype': 'init', 'model': 'claude-x'},
+        'claude': [{'type': 'system', 'subtype': 'init', 'model': 'claude-x', 'session_id': 'claude-session-1'},
                    {'type': 'result', 'total_cost_usd': 1.5, 'usage': {
                        'input_tokens': 7, 'output_tokens': 3, 'cache_read_input_tokens': 40,
                        'cache_creation_input_tokens': 2}}],
-        'codex': [{'type': 'turn.completed', 'usage': {'input_tokens': 50, 'cached_input_tokens': 30,
+        'codex': [{'type': 'thread.started', 'thread_id': '0a1b2c3d-thread'},
+                  {'type': 'turn.completed', 'usage': {'input_tokens': 50, 'cached_input_tokens': 30,
                                                        'output_tokens': 4}}],
     }
-    expected = {'dsh': (None, 20, 10, 200, 0, None), 'claude': ('claude-x', 7, 3, 40, 2, 1.5),
-                'codex': (None, 20, 4, 30, None, None)}
+    expected = {'pi': ('deepseek-flash', 'high', 9, 1, None, None, None),
+                'dsh': (None, None, 20, 10, 200, 0, None), 'claude': ('claude-x', 'xhigh', 7, 3, 40, 2, 1.5),
+                'codex': ('gpt-b', 'high', 20, 4, 30, None, None)}
     for kind, events in formats.items():
         log = tmp_path / f'{kind}.log'
         log.write_text(''.join(json.dumps(e) + '\n' for e in events) + 'a plain line\n')
         got = usage(log)
-        assert (got['model'], got['input_tokens'], got['output_tokens'], got['cache_read_tokens'],
+        assert (got['model'], got['effort'], got['input_tokens'], got['output_tokens'], got['cache_read_tokens'],
                 got['cache_write_tokens'], got['cost_usd']) == expected[kind], kind
     assert set(usage(tmp_path / 'missing.log').values()) == {None}
 

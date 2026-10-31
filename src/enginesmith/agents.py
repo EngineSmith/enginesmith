@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -32,6 +33,7 @@ TEMPLATES = {
     # agent.model is refused for it.
     'dsh': ['env', 'DSH_PERMISSION_MODE=danger-full-access', 'dsh', '--profile', 'headless', '--json', '{prompt}'],
 }
+NAMES = {'claude': 'Claude Code', 'codex': 'Codex CLI', 'kimi': 'Kimi Code', 'pi': 'Pi', 'dsh': 'DeepSeek Harness'}
 MODEL_FLAG = ['--model', '{model}']
 # Streaming deltas (Pi's JSON mode emits one per few tokens); the complete message follows in message_end, so the
 # session log keeps the whole transcript without them.
@@ -124,12 +126,51 @@ def _copy(source, out) -> None:
 USAGE_KEYS = ('input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd')
 
 
+_SESSION_ID = re.compile(r'[A-Za-z0-9-]{8,80}\Z')
+
+
+def _last(path: Path, marker: bytes, pick) -> dict | str | None:
+    """pick(record) of the last JSON line of a file that contains marker and gives a value."""
+    value = None
+    try:
+        with open(path, 'rb') as lines:
+            for line in lines:
+                if marker in line:
+                    try:
+                        value = pick(json.loads(line)) or value
+                    except (ValueError, AttributeError):
+                        pass
+    except OSError:
+        pass
+    return value
+
+
+def _codex_turn(thread: str) -> dict:
+    """The settings of a Codex session's last turn (model, effort), from its own session file."""
+    home = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
+    for path in home.glob(f'sessions/*/*/*/rollout-*-{thread}.jsonl') if _SESSION_ID.match(thread) else ():
+        return _last(path, b'"turn_context"', lambda r: r.get('type') == 'turn_context' and r.get('payload')) or {}
+    return {}
+
+
+def _claude_effort(session: str) -> str | None:
+    """The reasoning effort Claude Code recorded in the session's transcript."""
+    home = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+    for path in home.glob(f'projects/*/{session}.jsonl') if _SESSION_ID.match(session) else ():
+        effort = _last(path, b'"effort"', lambda r: r.get('effort'))
+        return effort if isinstance(effort, str) else None
+    return None
+
+
 def usage(log: Path) -> dict:
-    """What the session's agent reported about itself in its JSON output: the model, the tokens (input excludes
-    cache reads) and the cost. A value the agent does not report is None. Parsed: Pi (each assistant message_end),
-    DeepSeek Harness (each step_end status), Claude Code (the init event's model; the result event's totals) and
-    Codex (each turn.completed). Kimi Code's output is not parsed."""
-    totals, found, model = dict.fromkeys(USAGE_KEYS, 0), set(), None
+    """What the session's agent reported about itself: the model, the reasoning effort, the tokens (input excludes
+    cache reads) and the cost. A value the agent does not report is None. Read from the JSON output: Pi (each
+    assistant message_end, with the model and thinking level), DeepSeek Harness (each step_end status; no model or
+    effort), Claude Code (the init event's model and session; the result event's totals) and Codex (each
+    turn.completed). Claude Code's effort and Codex's model and effort come from the agent's own session file, which
+    the output names. Kimi Code's output is not parsed."""
+    totals, found, model, effort = dict.fromkeys(USAGE_KEYS, 0), set(), None, None
+    claude_session = codex_thread = None
 
     def add(key, value):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -148,6 +189,7 @@ def usage(log: Path) -> dict:
                 if kind == 'message_end' and (event.get('message') or {}).get('role') == 'assistant':
                     message = event['message']
                     model = message.get('model') or model
+                    effort = message.get('thinkingLevel') or effort
                     u = message.get('usage') or {}
                     add('input_tokens', u.get('input'))
                     add('output_tokens', u.get('output'))
@@ -162,6 +204,7 @@ def usage(log: Path) -> dict:
                     add('cache_write_tokens', u.get('cacheWriteTokens'))
                 elif kind == 'system' and event.get('subtype') == 'init':
                     model = event.get('model') or model
+                    claude_session = event.get('session_id') or claude_session
                 elif kind == 'result':
                     u = event.get('usage') or {}
                     add('input_tokens', u.get('input_tokens'))
@@ -169,6 +212,8 @@ def usage(log: Path) -> dict:
                     add('cache_read_tokens', u.get('cache_read_input_tokens'))
                     add('cache_write_tokens', u.get('cache_creation_input_tokens'))
                     add('cost_usd', event.get('total_cost_usd'))
+                elif kind == 'thread.started':
+                    codex_thread = event.get('thread_id') or codex_thread
                 elif kind == 'turn.completed':
                     u = event.get('usage') or {}
                     cached = u.get('cached_input_tokens') or 0
@@ -177,9 +222,14 @@ def usage(log: Path) -> dict:
                     add('output_tokens', u.get('output_tokens'))
     except OSError:
         pass
+    if isinstance(codex_thread, str):
+        turn = _codex_turn(codex_thread)
+        model, effort = turn.get('model') or model, turn.get('effort') or effort
+    if isinstance(claude_session, str):
+        effort = _claude_effort(claude_session) or effort
     out = {key: (round(totals[key], 6) if key == 'cost_usd' else totals[key]) if key in found else None
            for key in USAGE_KEYS}
-    return {'model': model, **out}
+    return {'model': model, 'effort': effort, **out}
 
 
 def version(kind: str) -> str | None:
