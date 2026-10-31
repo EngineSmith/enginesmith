@@ -113,8 +113,14 @@ def test_explain_prints_the_plan_from_the_task(tmp_path, model_dir, capsys):
     assert 'w_prefill = 0.25, w_decode = 0.75' in plan and 'score improves by at least 1.5%' in plan
     assert "one case's prefill or decode speedup improves" not in plan   # the case rule is off
     assert 'at least 300 s' in plan and '## 9. Budget' in plan
+    assert '**Starting point:** an empty project' in plan
     written = (tmp_path / 'plan.md').read_text()
     assert written.startswith('<!-- enginesmith plan ') and written.split('\n', 1)[1] in plan
+    (tmp_path / 'seed').mkdir()
+    path.write_text(path.read_text().replace('[engine]\n', '[engine]\nseed = "seed"\n'))
+    cli.main(['explain', str(path)])
+    assert '**Starting point:** the engine source in `seed` (`engine.seed`). It is evaluated first' in (
+        capsys.readouterr().out)
 
 
 def test_a_run_needs_a_current_plan(tmp_path, model_dir, capsys):

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 
 from enginesmith import references, workload
@@ -174,7 +175,18 @@ def explain(task: Task) -> str:
             'earlier rounds, the skill and the model card. The agent edits `engine/` and checks itself with '
             '`enginesmith dev-eval` (the same procedure on public prompts). When the session ends, the harness commits '
             '`engine/`, builds a clean checkout of that commit, runs one formal evaluation (sections 4-5) and decides.',
-            '', '| round kind | when | starts from |', '|---|---|---|']
+            '']
+    if not task.seed:
+        out.append('**Starting point:** an empty project (only a `.gitignore`; `engine.seed` is not set). The first '
+                   'session writes the engine from scratch, and the next ones repair it until a candidate passes.')
+    elif task.evaluate_seed:
+        out.append(f'**Starting point:** the engine source in `{os.path.relpath(task.seed, task.path.parent)}` '
+                   '(`engine.seed`). It is evaluated first, with no session: if it passes, it is the first best '
+                   'engine and the sessions optimize it; otherwise the first session repairs it.')
+    else:
+        out.append(f'**Starting point:** the engine source in `{os.path.relpath(task.seed, task.path.parent)}` '
+                   '(`engine.seed`). It is not evaluated first: the first session starts from it.')
+    out += ['', '| round kind | when | starts from |', '|---|---|---|']
     if task.seed:
         out.append('| seed | first, with no session | the seed engine (`engine.seed`) |')
     out += ['| generate | no candidate yet | ' + ('the seed' if task.seed else 'an empty project') + ' |',

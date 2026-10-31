@@ -238,9 +238,9 @@ uv run enginesmith explain tasks/NAME/task.toml
 
 It writes the plan to `tasks/NAME/plan.md` and prints it, generated from the task file and `prepare.json`: the model
 and reference; every timed case with its share of the score and the reference's measured times; the score formula;
-the correctness gates; one evaluation's procedure and duration; how the search evolves round by round and which agent
-and model run the sessions; the acceptance rules with their thresholds; the final evaluation and task accuracy; the
-budget.
+the correctness gates; one evaluation's procedure and duration; the starting point (an empty project or the seed);
+how the search evolves round by round and which agent and model run the sessions; the acceptance rules with their
+thresholds; the final evaluation and task accuracy; the budget.
 
 **Show the user the whole plan before anything starts**: every section and every number, translated into their
 language, not a summary. The user decides how many hours of their machine and their agent subscription the run takes,
