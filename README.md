@@ -70,7 +70,9 @@ has the details.
 
 ## Share an engine, check someone else's
 
-When a run is done, your agent asks whether to share the engine. Sharing is one command:
+When a run is done, your agent asks whether to share the engine. You can also just say so at any time, in your own
+words ("share my engine", "分享"): the agent tells you which engine it will share, exactly what will be published and
+where, what is left out and what to check, and does nothing until you choose. Behind it is one command:
 
 ```sh
 uv run enginesmith share tasks/NAME/runs/RUN                       # publish: your repository + a Discussions post

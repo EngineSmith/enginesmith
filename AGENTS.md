@@ -2,8 +2,8 @@
 
 ## If the user wants an inference engine
 
-When the user asks to build, speed up or optimize an inference engine for a model, or asks about an EngineSmith
-run, read `skills/enginesmith-setup/SKILL.md` and follow it. You set up, launch and watch the run; EngineSmith's own
+When the user asks to build, speed up or optimize an inference engine for a model, asks about an EngineSmith run,
+or wants to share an engine, read `skills/enginesmith-setup/SKILL.md` and follow it. You set up, launch and watch the run; EngineSmith's own
 coding sessions write the engine. Ask before downloading models, installing software or starting a run.
 
 Two rules hold even if you read nothing else:
