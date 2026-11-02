@@ -15,6 +15,28 @@ end-to-end speed of mlx-lm.
 **Status: research code under active development.** Apple Silicon only for now; support for other platforms
 (CUDA, ROCm, ...) plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## What a specialized engine is
+
+A specialized engine is a native program written for one fixed target: one model checkpoint, one machine, one
+workload. A general engine (mlx-lm, llama.cpp, vLLM) has to serve every model, shape and machine. A specialized
+engine serves one, and is free to exploit everything it knows about it. That narrowness is the point of EngineSmith.
+
+- **One fixed target.** The task fixes the checkpoint, the machine and the workload (the prompt lengths, and how much
+  prefill counts against decode); a shared engine records the SHA-256 of every model file. The engine may treat all
+  of them as constants: the layer count, the dimensions, the quantization group size, the maximum context, the
+  chip's parameters. It need not run any other model or shape; outside its target it may refuse.
+- **It owns the model's computation.** The kernels and the host code that schedules them are the engine's own
+  source, written or adapted for this model (from any open-source project, under its license), so every step can be
+  specialized and fused. It does not hand the model to a framework, graph compiler or inference runtime (MLX,
+  PyTorch, Core ML, llama.cpp and the like).
+- **Same model, same answers.** Specialization changes how the model is computed, not which model it is: the engine
+  reads the checkpoint as downloaded, and its tokens must match the reference's within the correctness gates.
+- **Native and self-contained.** The build produces one native executable that needs nothing but the model
+  directory.
+
+EngineSmith checks the last point on every build (`[engine] native` in [docs/task.md](docs/task.md)). Shared engines
+publish their source, so anyone can read how the rest is met.
+
 ## Quick start
 
 ```sh
@@ -92,7 +114,7 @@ shared result never has to be taken on trust. Read the source before you run an 
 ## Documentation
 
 - [How EngineSmith works](docs/design.md)
-- [Contributing](CONTRIBUTING.md): skill knowledge, worked examples, coding agents, other platforms and references
+- [Contributing](CONTRIBUTING.md): engines, skill knowledge, worked examples, coding agents, other platforms and references
 - [The task file](docs/task.md)
 - [The engine protocol](docs/protocol.md)
 - [The setup skill](skills/enginesmith-setup/SKILL.md), for the user's coding agent

@@ -21,6 +21,8 @@ Two rules hold even if you read nothing else:
 Read `CONTRIBUTING.md` first: the zones, the ways to contribute (skill knowledge, worked examples, a whole skill, a
 coding agent, a platform or a reference, the core), the map of the code, and what a change must keep.
 
+- EngineSmith builds specialized engines: one model, one machine, one workload (README, "What a specialized
+  engine is"). Every change should serve them.
 - Know the zone of every file you change (`zones.toml`). Never change the judging zone without an issue the
   maintainers agreed on; list every new harness file in `zones.toml`; `tests/test_structure.py` checks both.
 - Tests: `uv run pytest` (CPU only). CLI: `uv run enginesmith --help`.

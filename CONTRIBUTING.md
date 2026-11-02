@@ -1,8 +1,16 @@
 # Contributing to EngineSmith
 
-This file is written for contributors and for their coding agents: read it before changing anything. EngineSmith's
-numbers mean something only if the rules that judge an engine are stable and visible, so the repository is divided
-into zones with different rules. Most contributions add files to the open zone and never touch the rest.
+This file is written for contributors and for their coding agents: read it before changing anything.
+
+EngineSmith exists to build specialized engines: native programs written for one model, one machine and one workload
+(README, "What a specialized engine is"). Every contribution should serve them: an engine you built, knowledge that
+makes the next one correct sooner or faster, a skill, support for another kind of hardware, a coding agent that can
+write them, or the harness that judges them. Work that makes a general-purpose runtime faster, or wraps one, belongs
+in that runtime's own project.
+
+EngineSmith's numbers mean something only if the rules that judge an engine are stable and visible, so the
+repository is divided into zones with different rules. Most contributions add files to the open zone and never touch
+the rest.
 
 ## Zones
 
@@ -43,8 +51,12 @@ judging change can therefore never be small or hidden in a diff.
 
 ## Ways to contribute
 
+Each of these serves specialized engines. The first needs no pull request: build an engine for a model you care
+about, share it, and check other people's engines on your machine.
+
 | contribution | zone | where | example |
 |---|---|---|---|
+| An engine | none (Discussions) | the Discussions, category Engines | your Qwen3-8B engine for an M4 Max, packaged by `enginesmith share`; an `enginesmith verify` of someone else's engine on your chip |
 | Knowledge for an existing backend | open | `skills/specialized-inference-engine/backends/metal-rust/` | a 4-bit GEMV variant that is faster on M4 Pro, with the measurement; a fusion that did not pay off, as a counterexample |
 | A worked example for a model family | open | `skills/specialized-inference-engine/examples/<model>/` | Qwen3.5 (gated DeltaNet and full attention) from a finished run: model card, decode map, optimization log |
 | A whole skill | open | `skills/<name>/`, used through `engine.skill` | a skill for engines in C++ and Metal, or one specialized in long-context prefill |
@@ -53,7 +65,6 @@ judging change can therefore never be small or hidden in a diff.
 | Another reference on a supported platform | judging | `src/enginesmith/references/<name>.py` | llama.cpp's Metal backend as a second reference on Apple Silicon |
 | A fix or a feature | core | `src/enginesmith/` | a bug fix; another accuracy benchmark next to MATH-500 and IFEval |
 | A change to the judging rules | judging | an issue first | gates that reject a correct engine on some model family, with the evidence |
-| An engine | none (Discussions) | the Discussions, category Engines | your Qwen3-8B engine for an M4 Max, packaged by `enginesmith share` |
 
 Sections below: [skill knowledge](#contributing-skill-knowledge), [a coding agent](#supporting-another-coding-agent),
 [a platform or a reference](#supporting-another-platform), [the core](#changing-the-core). Sharing an engine is
@@ -80,7 +91,9 @@ one, and the skill backend in `skills/specialized-inference-engine/backends/<nam
 
 ## Supporting another platform
 
-Example: Linux with an NVIDIA GPU. Do the three parts in this order; each has its own checks.
+A platform brings specialized engines to other hardware: the harness learns to judge them there, and the skill
+backend teaches the coding sessions to specialize for it. Example: Linux with an NVIDIA GPU. Do the three parts in
+this order; each has its own checks.
 
 ### 1. A platform module: `src/enginesmith/platforms/<name>.py`
 
@@ -178,7 +191,7 @@ of the engine, so a good page there helps every later run. Pull requests here ne
 - **A whole skill.** A task can use another skill with `engine.skill`; contribute it as `skills/<name>/` with a
   `SKILL.md` whose frontmatter names the directory, and add it to `test_both_skills_exist` in
   `tests/test_skills.py`. It must keep the contract the brief states (the protocol, the build, the native
-  executable) and may change everything else.
+  executable) and build specialized engines (README); it may change everything else.
 
 For every skill file: every number is measured on a named machine or labelled as an estimate; English only; no host
 paths or private files; each document small enough for one read (under 50 KB); helper scripts use the standard

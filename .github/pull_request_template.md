@@ -1,6 +1,7 @@
 ## What this changes
 
-<!-- One or two sentences. Link the issue if there is one. -->
+<!-- One or two sentences: what it changes and how it serves specialized engines (README, "What a specialized
+engine is"). Link the issue if there is one. -->
 
 ## Kind of contribution (CONTRIBUTING.md, "Ways to contribute")
 
