@@ -94,8 +94,10 @@ def explain(task: Task) -> str:
     kind = reference_kind(task)
     described = {'mlx-lm': 'stock mlx-lm, reproducing `generate_step` token for token: prefill in chunks of '
                            'min(2048, remaining - 1) tokens, the last prompt token alone, greedy decoding pipelined '
-                           'one step ahead'}
-    out += [f'- Reference: {described.get(kind, kind)} (`{" ".join(reference_argv(task)[1:3])}`, '
+                           'one step ahead',
+                 'sglang': 'stock SGLang (sglang.Engine with its platform defaults), its radix cache flushed on every '
+                           'reset, a continuation sent as the whole history'}
+    out += [f'- Reference: {described.get(kind, kind)} (`-m {references.KINDS[kind]["module"]}`, '
             f'version {references.version(kind)}).' if kind else
             f'- Reference: the custom command `{" ".join(task.reference)}`.', '']
 
@@ -129,7 +131,7 @@ def explain(task: Task) -> str:
             '', '    score = exp( sum_c sum_s w_c * w_s * ln speedup(c, s) / sum_c sum_s w_c * w_s )', '',
             f'with segment weights w_prefill = {o.prefill:g}, w_decode = {o.decode:g} and the case weights above; the '
             'table\'s "share" columns are each term\'s weight in it. 1.20 means the engine is 20% faster than '
-            'mlx-lm on this mix. The prefill and decode means used by the acceptance rules weight the cases by '
+            f'{reference_kind(task) or "the reference"} on this mix. The prefill and decode means used by the acceptance rules weight the cases by '
             'their case weights only.', '']
 
     allowed = g.case_mismatch_percent * task.output_tokens // 100
