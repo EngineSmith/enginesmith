@@ -47,7 +47,8 @@ def doctor() -> dict:
                  current_agent=agents.current(), sandboxed=sandboxed())
     problems, notes = platform_module.checks(facts)
     if kind and not facts['reference']['version']:
-        problems.append(f'The {kind} reference is not installed: run `uv sync --extra mlx`.')
+        problems.append(f'The {kind} reference is not installed: '
+                        + (references.KINDS[kind].get('install') or f'install the {references.KINDS[kind]["package"]} package.'))
     if not facts['git']:
         problems.append('git is not on PATH.')
     if not any(facts['agents'].values()):

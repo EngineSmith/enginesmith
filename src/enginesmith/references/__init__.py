@@ -21,8 +21,9 @@ import sys
 from pathlib import Path
 
 KINDS = {
-    'mlx-lm': {'module': 'enginesmith.references.mlx_lm', 'package': 'mlx-lm'},
-    'sglang': {'module': 'enginesmith.references.sglang', 'package': 'sglang', 'image_env': 'ENGINESMITH_SGLANG_IMAGE'},
+    'mlx-lm': {'module': 'enginesmith.references.mlx_lm', 'package': 'mlx-lm', 'install': 'run `uv sync --extra mlx`.'},
+    'sglang': {'module': 'enginesmith.references.sglang', 'package': 'sglang', 'image_env': 'ENGINESMITH_SGLANG_IMAGE',
+               'install': 'set ENGINESMITH_SGLANG_IMAGE to an SGLang ROCm image (Apptainer .sif), or install sglang.'},
 }
 
 

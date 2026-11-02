@@ -107,7 +107,9 @@ def visible_gpus() -> list[dict]:
 
 
 def supported() -> bool:
-    return platform.system() == 'Linux' and (ROOT / 'dev/kfd').exists() and bool(_gpus())
+    """The amdgpu kernel driver is loaded. A process that may use no GPU (a Slurm job without --gres) still gets this
+    platform, whose checks then say so, instead of the generic one."""
+    return platform.system() == 'Linux' and (ROOT / 'dev/kfd').exists()
 
 
 def _product_names() -> dict[str, str]:

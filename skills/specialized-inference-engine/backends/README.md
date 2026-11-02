@@ -7,7 +7,8 @@ extending a backend; for engine work on an existing backend, go straight to that
 ## Organization
 
 - One directory per platform and host stack: `backends/<name>/`, for example `backends/metal-rust/` (Metal Shading
-  Language kernels, Rust host code, Apple Silicon).
+  Language kernels, Rust host code, Apple Silicon) and `backends/hip-rust/` (HIP C++ kernels, Rust host code, AMD
+  Instinct MI325X).
 - Each backend has a `README.md` with: its file index, its hard rules (language, toolchain and numerics constraints
   that every change must keep), and a table of measured platform numbers (streaming bandwidth, cache sizes,
   per-dispatch and synchronization costs, timing noise) with their sources.
@@ -78,4 +79,5 @@ does not apply, say so in its `README.md`.
 | backend | status | measured on | notes |
 |---|---|---|---|
 | `metal-rust` | written: README and nine topic files | Apple M5 Max (40-core GPU, 128 GB) | one worked model (LFM2.5-24B-A2B, MLX 4-bit); numbers outside that engine and machine are not measured |
+| `hip-rust` | written: README and nine topic files | AMD Instinct MI325X (gfx942), ROCm 7.14 | platform micro-benchmarks (HBM bandwidth, launch, sync, hipGraph replay) and the SGLang 0.5.22 reference on Qwen3-0.6B are measured; no worked engine yet, so kernel-level guidance is hypotheses to measure |
 | others (CUDA, ...) | not written | - | follow "Adding a backend" |

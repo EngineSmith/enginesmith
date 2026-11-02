@@ -8,13 +8,22 @@ follows SGLang's own generation path. Only these settings are fixed:
 
 - no tokenizer (`skip_tokenizer_init`): requests carry raw token ids and replies return them;
 - greedy decoding (temperature 0) of exactly max_tokens tokens: `ignore_eos`, no stop tokens or strings;
-- the context length is the model's own; the KV pool is sized by `mem_fraction_static`;
+- the context length is the model's own plus a small margin (CONTEXT_MARGIN): SGLang stops a request a couple of
+  tokens before its context length, and the workload's longest prompt fills the model's context exactly with the
+  generated tokens (no position past the model's own context is ever computed); the KV pool is sized by
+  `mem_fraction_static`;
 - custom logit processors are enabled, which changes nothing for a request that carries none (only `judge` does).
 
 State between requests is SGLang's radix cache. A reset request flushes it first, so nothing computed for an earlier
 prompt is reused (the workload's development prompts are prefixes of each other). A continuation sends the whole
 history (the prompt and every emitted token); the cache holds all of it but the last emitted token, so SGLang computes
 only that token and then decodes, exactly the work of consuming the last token in place.
+
+Every request goes through SGLang's own request path (the engine's tokenizer-manager and scheduler processes, IPC
+between them), which costs a fixed amount per request: about 12 ms for a 1-token request on a 1-token prompt, and a
+continuation's lookup of the cached history grows with its length (measured on one MI325X, Qwen3-0.6B, SGLang
+0.5.22: a 64-token continuation costs about 20% more per token than the same tokens inside one request at 4,096
+tokens). A timed case sends two requests, so the reference pays this twice, where a user of SGLang would send one.
 
 Greedy decoding on ROCm uses SGLang's own sampler (aiter's greedy kernel when SGLANG_USE_AITER is set, else
 torch.argmax); its tie-breaking is the library's, and an exact tie counts as agreement in judge anyway.
@@ -41,6 +50,7 @@ from pathlib import Path
 
 PROTOCOL = 1
 MEM_FRACTION = 0.85
+CONTEXT_MARGIN = 16
 
 
 def _forcing_processor():
@@ -84,7 +94,11 @@ def _device_memory_used() -> int | None:
 class Reference:
     def __init__(self, model_dir: Path):
         import sglang
+        config = json.loads((model_dir / 'config.json').read_text())
+        context = config.get('max_position_embeddings') or config.get('max_seq_len') or config.get('seq_length')
+        os.environ['SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN'] = '1'
         self.engine = sglang.Engine(model_path=str(model_dir), skip_tokenizer_init=True, tp_size=1,
+                                    context_length=context + CONTEXT_MARGIN if context else None,
                                     mem_fraction_static=MEM_FRACTION, enable_custom_logit_processor=True,
                                     log_level='error')
         self.forcing = _forcing_processor().to_str()
