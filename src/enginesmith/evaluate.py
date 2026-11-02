@@ -37,7 +37,7 @@ TIMEOUT_FACTOR = 50
 MIN_TIMEOUT = 300.0
 # The version of the judging rules, the judging zone of zones.toml. A change to that zone adds a version there and
 # sets this to it; runs, reports and shared engines record it.
-EVALUATION_VERSION = 1
+EVALUATION_VERSION = 2
 WARMUP_LENGTH = 2048
 
 

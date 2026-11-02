@@ -99,7 +99,8 @@ this order; each has its own checks.
 
 Start from a copy of `platforms/generic.py`, which is the smallest complete implementation, and read the interface in
 `platforms/__init__.py`. Then add the module to `PLATFORMS` there, before `generic`, and list it under `[open]` in
-`zones.toml`. Every module must define:
+`zones.toml`. `platforms/linux_rocm.py` (Linux with an AMD GPU) is a complete example for a discrete GPU. Every
+module must define:
 
 | name | contract | NVIDIA hint (not implemented, not measured) |
 |---|---|---|

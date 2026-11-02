@@ -12,6 +12,7 @@ files = [
     "src/enginesmith/protocol.py",            # the engine protocol and its timing
     "src/enginesmith/workload.py",            # the Lily prompts and the public, held-out and nonce ranges
     "src/enginesmith/references/mlx_lm.py",   # the reference on Apple Silicon
+    "src/enginesmith/references/sglang.py",   # the reference on AMD Instinct GPUs
 ]
 
 [core]
@@ -39,6 +40,7 @@ files = [
 # Additions that change nothing that exists: one module per platform.
 files = [
     "src/enginesmith/platforms/generic.py",
+    "src/enginesmith/platforms/linux_rocm.py",
     "src/enginesmith/platforms/macos.py",
 ]
 
@@ -59,3 +61,12 @@ candidate request may take 50 times the reference's time (at least 300 s); the s
 of the per-case prefill and decode speedups; a candidate is accepted at +1.5% score, +1.5% on one segment (the other \
 segment and the score at most 1% worse) or +4% on one case's segment (the score at most 1% worse); the reference is \
 stock mlx-lm reproducing generate_step."""
+
+[[versions]]
+version = 2
+date = "2026-11-02"
+fingerprint = "1fd5cca741e7315bcca6d5a11a7b5b4cb41332c82954d6a0976e42bbc9f73865"
+changes = """Adds the reference on AMD Instinct GPUs: stock SGLang (sglang.Engine, its platform defaults, no tokenizer, \
+greedy, ignore_eos, the model's context), its radix cache flushed on every reset request, a continuation sent as the \
+whole history; judge replays a case's two requests (generate(P, 1), then a continuation) with a custom logit \
+processor that measures each row before forcing the token. The rules for Apple Silicon are unchanged."""

@@ -21,7 +21,7 @@ from __future__ import annotations
 import functools
 import importlib
 
-PLATFORMS = ('enginesmith.platforms.macos', 'enginesmith.platforms.generic')
+PLATFORMS = ('enginesmith.platforms.macos', 'enginesmith.platforms.linux_rocm', 'enginesmith.platforms.generic')
 
 
 @functools.cache
