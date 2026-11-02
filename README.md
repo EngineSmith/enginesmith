@@ -32,10 +32,12 @@ engine serves one, and is free to exploit everything it knows about it. That nar
 - **Same model, same answers.** Specialization changes how the model is computed, not which model it is: the engine
   reads the checkpoint as downloaded, and its tokens must match the reference's within the correctness gates.
 - **Native and self-contained.** The build produces one native executable that needs nothing but the model
-  directory.
+  directory. At run time it loads no Python and starts no Python process. The tools used to develop and build it
+  may be anything, Python included: only the executable counts.
 
-EngineSmith checks the last point on every build (`[engine] native` in [docs/task.md](docs/task.md)). Shared engines
-publish their source, so anyone can read how the rest is met.
+On every build EngineSmith checks that the engine is a native executable that links no Python or MLX library
+(`[engine] native` in [docs/task.md](docs/task.md)). Shared engines publish their source, so anyone can read how the
+rest is met.
 
 ## Quick start
 
