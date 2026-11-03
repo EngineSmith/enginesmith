@@ -133,5 +133,4 @@ uv run enginesmith --help
 
 ## License
 
-Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). EngineSmith was created and is led by
-[Shuibai Zhang](https://zhangshuibai.github.io/).
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
