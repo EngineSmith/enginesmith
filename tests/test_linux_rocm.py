@@ -37,7 +37,7 @@ def node(tmp_path, monkeypatch):
         path.mkdir(parents=True)
         if text:
             (path / 'properties').write_text(text)
-    gpu(tmp_path, 7, 168, 34048, 7825739000502619969, 297771008)
+    gpu(tmp_path, 7, 168, 34048, 1229801703532086340, 297771008)
     gpu(tmp_path, 8, 176, 0x9500, 1, 5 * GiB)
     (tmp_path / 'dev').mkdir()
     (tmp_path / 'dev/kfd').touch()
@@ -67,7 +67,7 @@ def test_the_first_visible_gpu_is_described(node):
 def test_without_rocm_smi_the_name_comes_from_sysfs(node, monkeypatch):
     monkeypatch.setattr(linux_rocm, '_run', lambda argv, timeout=20: None)
     assert linux_rocm.machine()['accelerator'] == 'AMD Instinct MI325DLC OAM (gfx942)'
-    assert linux_rocm._gpus()[0]['uuid'] == 'GPU-6c9a9c288de10f41'
+    assert linux_rocm._gpus()[0]['uuid'] == 'GPU-1111222233334444'
 
 
 def test_the_visible_devices_variables_select_the_gpu(node, monkeypatch):
@@ -80,7 +80,7 @@ def test_the_visible_devices_variables_select_the_gpu(node, monkeypatch):
     monkeypatch.setenv('HIP_VISIBLE_DEVICES', '0')  # an index among the devices ROCR left
     assert linux_rocm.machine()['pci_bus'] == '0000:95:00.0'
     monkeypatch.delenv('ROCR_VISIBLE_DEVICES')
-    monkeypatch.setenv('HIP_VISIBLE_DEVICES', 'GPU-6c9a9c288de10f41')
+    monkeypatch.setenv('HIP_VISIBLE_DEVICES', 'GPU-1111222233334444')
     assert linux_rocm.machine()['pci_bus'] == '0000:85:00.0'
     monkeypatch.delenv('HIP_VISIBLE_DEVICES')
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '1,0')
