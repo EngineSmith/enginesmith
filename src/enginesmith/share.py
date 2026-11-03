@@ -8,7 +8,7 @@ downloads the same model files, which verify checks by SHA-256), and no host pat
 a build embeds paths of the machine it was built on, such as the home directory.
 
 verify builds the engine from the package's source (it runs the shared binary only when asked) and evaluates it
-against the local mlx-lm reference with the formal evaluation's procedure, on fresh prompts, on this machine.
+against the local reference (the run's, e.g. mlx-lm or SGLang) with the formal evaluation's procedure, on fresh prompts, on this machine.
 """
 from __future__ import annotations
 
@@ -90,10 +90,9 @@ def describe(run, label: str) -> dict:
         'engine': {'round': label, 'build': list(t.build), 'executable': t.executable, 'native': t.native},
         'model': {'name': t.model.name, 'source': t.model_source, 'revision': model_revision(t.model),
                   'vocab_size': t.vocab_size, 'files': model_files(t.model)},
-        'machine': machine(),
+        'machine': s.get('machine') or machine(),
         'harness': {'version': __version__, 'digest': s['harness'], 'evaluation_version': s.get('evaluation_version'),
-                    'reference': reference_kind(t) or 'custom',
-                    'reference_version': references.version(reference_kind(t)) if reference_kind(t) else None},
+                    **_reference(s, t)},
         'settings': {'lengths': list(t.lengths), 'output_tokens': t.output_tokens, 'controls': t.controls,
                      'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
                                    'length_weights': {str(k): v for k, v in t.objective.length_weights.items()}},
@@ -133,10 +132,21 @@ def _agent(info: dict) -> str:
             + f' (model {named("agent_models")}, reasoning effort {named("agent_efforts")})')
 
 
+def _reference(state: dict, task) -> dict:
+    """The run's reference as the run recorded it; runs from before that record fall back to this machine's view."""
+    if state.get('reference'):
+        kind, version = state['reference']['kind'], state['reference']['version']
+    else:
+        kind = reference_kind(task)
+        version = references.version(kind) if kind else None
+    return {'reference': kind or 'custom', 'reference_version': version}
+
+
 def readme(info: dict, repository: str | None = None) -> str:
     """The package's README, also the text of its post in the Discussions' Engines category. With a repository (the
     package published on GitHub), it links it and verifies from it."""
     m, mc, final = info['model'], info['machine'], info['final']
+    ref = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
     results = final or info['search']['evaluation'] or {'cases': []}
     rows = '\n'.join(f'| {c["length"]:,} | {_x(c["prefill_speedup"])} | {_x(c["decode_speedup"])} |'
                      for c in results['cases'])
@@ -153,7 +163,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                if repository else []),
              f'- Search: {info["search"]["rounds"]} rounds by {_agent(info)}'
              + (f', agent cost ${info["search"]["agent_cost_usd"]:.2f}' if info['search']['agent_cost_usd'] else ''),
-             '', f'## Speed against mlx-lm ({"held-out final evaluation" if final else "search evaluation"})', '',
+             '', f'## Speed against {ref} ({"held-out final evaluation" if final else "search evaluation"})', '',
              f'Score {_x(results.get("score"))}; prefill {_x((results.get("segments") or {}).get("prefill"))}, '
              f'decode {_x((results.get("segments") or {}).get("decode"))} (reference time / engine time, '
              f'{info["settings"]["output_tokens"]} tokens per request).', '',
@@ -164,9 +174,9 @@ def readme(info: dict, repository: str | None = None) -> str:
                   f'{g["total_steps"]} judged steps mismatch (at most {g["allowed"]} allowed).', '']
     lines += ['## Speed in absolute terms', '',
               f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this engine '
-              'and mlx-lm on the same machine.', '',
+              f'and {ref} on the same machine.', '',
               '| prompt tokens | time to first token, ms | prefill tok/s | decode tok/s |', '|---:|---:|---:|---:|']
-    lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} (mlx-lm {_n(c["reference_ttft_ms"])}) | '
+    lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} ({ref} {_n(c["reference_ttft_ms"])}) | '
               f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
               f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
     lines.append('')
@@ -178,7 +188,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                   f'- {ms["sessions"]} coding sessions by {_agent(info)}; the search took '
                   f'{ms["search_minutes"]:.0f} min.',
                   f'- {reached("first_correct", "First correct engine")}.',
-                  f'- {reached("reference_matched", "First engine as fast as mlx-lm (score 1.0)")}.',
+                  f'- {reached("reference_matched", f"First engine as fast as {ref} (score 1.0)")}.',
                   ('- Agent usage: not reported by the agent.' if ms['total_input_tokens'] is None
                    and ms['total_cost_usd'] is None else
                    f'- Agent usage: {_k(ms["total_input_tokens"])} input and {_k(ms["total_output_tokens"])} output '
@@ -194,7 +204,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                   'length; `enginesmith.json` has the same and more.', '']
     quality = info['quality']
     if quality:
-        lines += ['## Task accuracy (greedy decoding)', '', '| benchmark | mlx-lm | this engine |', '|---|---:|---:|']
+        lines += ['## Task accuracy (greedy decoding)', '', f'| benchmark | {ref} | this engine |', '|---|---:|---:|']
         for name, title in (('math500', 'MATH-500'), ('ifeval', 'IFEval, prompt-level strict')):
             if isinstance(quality.get(name), dict):
                 r = quality[name]
@@ -202,8 +212,9 @@ def readme(info: dict, repository: str | None = None) -> str:
                              f'{100 * r["engine"]["accuracy"]:.1f}% |')
         lines.append('')
     lines += ['## Use it', '',
-              'These are the author\'s measurements. Check them on your own Mac (this builds the engine from '
-              '`source/` and compares it with your local mlx-lm):', '', '```sh',
+              'These are the author\'s measurements. Check them on a machine like this one '
+              f'({mc["accelerator"] or mc["chip"] or "the same hardware"}; this builds the engine from `source/` and '
+              f'compares it with your local {ref}):', '', '```sh',
               f'hf download {m["source"] or "<model repository>"}' + (f' --revision {m["revision"]}' if m['revision'] else '')
               + f' --local-dir models/{m["name"]}',
               f'uv run enginesmith verify {repository or info["name"] + ".zip"} --model models/{m["name"]}', '```', '',
@@ -304,7 +315,8 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
         'built with EngineSmith', '--source', str(package), '--remote', 'origin', '--push')
     machine = info['machine']['chip'] or info['machine']['accelerator'] or 'an unknown machine'
     result = info['final'] or info['search']['evaluation'] or {}
-    score = f', {result["score"]:.2f}x mlx-lm' if isinstance(result.get('score'), (int, float)) else ''
+    against = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
+    score = f', {result["score"]:.2f}x {against}' if isinstance(result.get('score'), (int, float)) else ''
     title = f'[engine] {info["model"]["source"] or info["model"]["name"]} on {machine}: {info["name"]}{score}'
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as body:
         body.write((package / 'README.md').read_text())

@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 
-from enginesmith import acceptance, agents, brief, engine_repo, report
+from enginesmith import acceptance, agents, brief, engine_repo, references, report
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan, ReferenceFailed, Stopped, rows
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog, kill_group
@@ -101,7 +101,9 @@ class Run:
         write_json(directory / 'state.json', {
             'phase': 'search', 'created': now, 'deadline': now + task.budget.wall_time_s, 'harness': harness_digest(),
             'evaluation_version': EVALUATION_VERSION, 'task_digest': task.digest(),
-            'agent_version': agents.version(task.agent),
+            'agent_version': agents.version(task.agent), 'machine': current().machine(),
+            'reference': {'kind': brief.reference_kind(task), 'version': references.version(brief.reference_kind(task))
+                          if brief.reference_kind(task) else None},
             'inputs': {'skill': tree_digest(task.skill), 'model_card': tree_digest(task.model_card)}, 'initial_commit': initial, 'seed_pending': task.evaluate_seed,
             'sessions': 0, 'rounds': [], 'current': None, 'incumbent': None, 'latest': None,
             'evaluation_s': [estimate] if estimate else [], 'search_end': None, 'final': None, 'error': None})
