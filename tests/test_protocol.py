@@ -70,3 +70,15 @@ def test_the_engine_gets_a_clean_environment(tmp_path):
     with Engine([sys.executable, str(script)], scratch=tmp_path / 's', label='e') as engine:
         reply, _ = engine.call('hello', 10)
     assert 'ENGINESMITH_TEST_SECRET' not in reply['env'] and 'HOME' in reply['env']
+
+
+def test_kill_all_leaves_everything_but_its_own_files(tmp_path):
+    registry = Registry(tmp_path / 'registry')
+    (tmp_path / 'registry' / 'build').mkdir()
+    (tmp_path / 'registry' / 'build' / 'engine').write_text('x')
+    (tmp_path / 'registry' / 'notes.txt').write_text('x')
+    (tmp_path / 'registry' / '7').mkdir()
+    registry.add(2**22 + 12345)  # a process group that does not exist
+    assert registry.kill_all() == []
+    assert sorted(p.name for p in (tmp_path / 'registry').iterdir()) == ['7', 'build', 'notes.txt']
+    assert (tmp_path / 'registry' / 'build' / 'engine').read_text() == 'x'

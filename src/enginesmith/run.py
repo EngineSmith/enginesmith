@@ -40,6 +40,11 @@ def read_json(path: Path, default=None):
         return default
 
 
+# The session's registry of engine process groups, inside its workspace; the name keeps agents from taking it for
+# a place to put engine builds.
+REGISTRY = '.engine-processes'
+
+
 def harness_digest() -> str:
     """sha256 over the harness's own source files; the run refuses to evaluate when it changes."""
     digest = hashlib.sha256()
@@ -252,7 +257,7 @@ class Run:
             # The driver stopped during this session: do not start it again; take the engine directory as it is.
             if record.get('agent_pgid'):
                 kill_group(record['agent_pgid'])
-            Registry(work / 'engines').kill_all()
+            Registry(work / REGISTRY).kill_all()
             record['session'] = {'interrupted': True}
             self.event(f'round {label}: the session was interrupted; its engine directory is taken as it is')
             return
@@ -262,13 +267,13 @@ class Run:
         cache = self.dir / 'cache' / 'reference-controls.json'
         info = {'run': str(self.dir), 'round': label, 'kind': record['kind'], 'task': self.task.to_json(),
                 'engine': str(work / 'engine'), 'brief': str(work / 'brief'),
-                'reference': brief.reference_argv(self.task), 'registry': str(work / 'engines'),
+                'reference': brief.reference_argv(self.task), 'registry': str(work / REGISTRY),
                 'reference_controls': str(cache)}
         session_file = brief.write(work, self.task, record['kind'], self._start_text(record), self._facts(record),
                                    info)
         if cache.is_file():
             shutil.copy2(cache, work / 'brief' / 'reference-controls.json')
-        registry = Registry(work / 'engines')
+        registry = Registry(work / REGISTRY)
         self.session_registries.append(registry)
         command = agents.argv(self.task.agent, self.task.agent_command, self.task.agent_model, work)
         record.update(session_started=time.time(), agent=command[0])
