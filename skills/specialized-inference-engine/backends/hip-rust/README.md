@@ -108,11 +108,14 @@ specification. Re-measure on your machine; the micro-benchmarks are single runs 
 | hipGraph replay, 400-kernel graph | 1.69 us per kernel (675.7 us per graph) | host wall time |
 | SGLang greedy determinism | bit-identical across repeated runs at every length tested | through the harness |
 
-Conclusion from one micro-benchmark (re-measure with your own kernels before relying on it): **graph replay did not
-reduce the per-kernel cost** compared with stream launches on this machine, unlike typical CUDA experience. Kernel
-count itself is the cost, so fusion and persistent or megakernel designs come first, graph capture second. Measure
-the marginal in-chain cost of one more kernel in your own decode step with a rocprofv3 kernel trace before you
-design around either number (`profiling.md`, `decode-loop.md`).
+**Graph replay did not reduce the per-kernel cost** on this machine, unlike typical CUDA experience: first in the
+micro-benchmark above, then in a real engine (a whole captured decode step: 56.24 -> 56.20 ms per 64 tokens at 4K;
+`counterexamples.md`). Kernel count itself is the cost. **What worked** was folding element-wise work into the
+kernels that need it, with no inter-block synchronization (RMSNorm into the QKV and gate/up GEMVs, SiLU into the
+down GEMV, RoPE into decode attention, head + argmax), and loading the next stage's weights early. **What did not**
+was handing data between blocks inside one launch: three measured attempts (device-scope fence, agent-scope `sc1`
+atomics, a producer / consumer launch) were all slower than the kernel boundary they removed. Treat persistent and
+megakernel designs as unproven here until a measured grid barrier beats a launch boundary.
 
 The reference: SGLang 0.5.22, Qwen3-0.6B bf16, batch 1, greedy, 64 decode tokens, measured through the harness on the
 same machine and date:
@@ -148,7 +151,9 @@ plausible (estimate, not measured).
 
 - The marginal cost of one more kernel inside a real decode chain, by grid size (the launch rates above are host
   wall time of empty kernels, which do not separate host submission from the GPU's per-dispatch gap).
-- The cost of a grid-wide barrier inside a persistent kernel, by grid size, with device-scope fences across XCDs.
+- The cost of a grid-wide barrier inside a persistent kernel, by grid size, with device-scope fences across XCDs (an
+  in-launch handoff between 64 and 256 blocks already cost ~5 us per layer more than a kernel boundary;
+  `counterexamples.md`).
 - Bandwidth of a GEMV as a function of bytes per kernel (1-12 MB, the size of one projection of a small model).
 - Effect of `HIP_FORCE_DEV_KERNARG=1` (kernel arguments in device memory) and of `hipDeviceScheduleSpin` versus
   blocking sync on launch and sync latency.

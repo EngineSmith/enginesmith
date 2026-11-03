@@ -74,7 +74,9 @@ block reads that cache row from memory in this launch. On Metal this fusion remo
 
 O needs every head's attention output, down needs every intermediate, and the next layer's norm needs every element of
 the residual. Fusing across those points needs all blocks of one stage to finish before any block of the next starts
-reading. Three ways, in order of risk:
+reading. Measured so far on this GPU, every in-launch handoff was slower than the kernel boundary it removed
+(`counterexamples.md`, "Fusion and grid-wide synchronization"): try one only with a reason why your case differs.
+Three ways, in order of risk:
 
 1. **Last-finishing block.** Every block publishes its output, does a release fence at agent scope, increments a
    counter; the block that sees `count == nblocks - 1` acquires and runs the epilogue (combine split-KV partials, the
@@ -120,7 +122,9 @@ documentation).
 ## The decode megakernel (persistent kernel)
 
 One cooperative launch per decode step (or per request), a grid of `occupancy x 304` blocks that walks the stages of
-the whole step with grid barriers between them. Hypotheses, in the order to test them:
+the whole step with grid barriers between them. Unproven on this GPU: the in-launch handoffs measured so far each
+cost more than a launch boundary (`counterexamples.md`), so build a barrier-only probe first and stop if a barrier
+is not cheaper than a launch. Hypotheses, in the order to test them:
 
 - **Barrier cost decides everything.** Example (Qwen3-0.6B, estimate): 4 all-to-all barriers per layer (before O,
   before gate/up, before down, before the next layer's QKV; QKV -> attention is a per-head dependency that per-head
