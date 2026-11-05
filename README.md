@@ -10,79 +10,13 @@ succeeded: the workload, the reference, the correctness gates, the timing, the a
 
 Its first engine, for LFM2.5-24B-A2B on an Apple M5 Max, was released as
 [Molten](https://github.com/zhangshuibai/molten). Over 78 agent sessions it went from 0.56x to 1.25x the
-end-to-end speed of mlx-lm.
+end-to-end speed of mlx-lm. On AWS Trainium2, engines for Qwen3 from 0.6B to 30B-A3B run 1.5x to 2.9x the speed of
+NxD Inference, decoding token by token (see [Trainium](#trainium)).
 
 **Status: research code under active development.** Apple Silicon (mlx-lm as the reference), AMD Instinct GPUs
 on Linux (ROCm, SGLang as the reference; see the setup skill) and AWS Trainium2 (NxD Inference as the reference; see
 "Trainium" below); support for other platforms (CUDA, ...) plugs in without changing the core, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## This fork: AWS Trainium2
-
-This fork ([xuanfeiren/enginesmith](https://github.com/xuanfeiren/enginesmith)) adds AWS Trainium2 as a third
-platform, next to Apple Silicon and AMD Instinct, built the same way as the Apple path: coding agents write native
-engines (NKI kernels compiled to NEFF at build time, embedded in a C++ executable that links only libnrt), judged
-token by token against stock NxD Inference. Only public, open-source AWS material is used: the public Neuron SDK
-packages and the documented NKI API.
-
-### What it adds to upstream
-
-| Part | Where |
-|---|---|
-| Platform module `linux-neuron`: neuron-ls facts, HBM budget, an ELF + ldd native check (refuses Python and framework libraries, and executables that do not link libnrt, so engines must compute on the NeuronCores), per-run NeuronCores (`ENGINESMITH_NEURON_CORE`, `ENGINESMITH_NEURON_CORES`) | `src/enginesmith/platforms/neuron.py`, optional `engine_environment()` in `platforms/__init__.py` and `protocol.py` |
-| Reference `nxdi`: stock NxD Inference driven exactly like its `HuggingFaceGenerationAdapter`; judge in a worker process on separate cores; tensor parallel (`[reference] tensor_parallel`); mixture-of-experts models; a compile cache | `src/enginesmith/references/nxdi.py`, `references/__init__.py`, `task.py`, `brief.py` |
-| Evaluation version 3 (adds the Trainium reference; nothing changes on Apple Silicon or AMD) | `zones.toml`, `evaluate.py` |
-| Skill backend `nki-cpp`: hard rules, platform numbers, the public compile route, runtime, decode loop, kernel fusion, GEMV, attention, prefill, tensor parallel, profiling, counterexamples, and a working example | `skills/specialized-inference-engine/backends/nki-cpp/` |
-| Worked example: Qwen3-0.6B at 2.2x NxD Inference | `skills/specialized-inference-engine/examples/qwen3-0.6b-trn2/` |
-| Setup skill, task docs and README: Trainium sections | `skills/enginesmith-setup/SKILL.md`, `docs/task.md`, this README |
-| Harness fixes found on the way: snapshots never include `target/` (a prebuilt kernel cache had reached a "clean" build); a build that fails on a busy accelerator is retried once; reference-neutral share and explain text; `--skip-git-repo-check` is no longer mistaken for an `sk-` key; a per-run GPU lock (`GPU_LOCK_FILE`); task accuracy reports the engine's speed on real prompts relative to the reference | `engine_repo.py`, `quality.py`, `share.py`, `explain.py`, `task.py`, `dev_eval.py` |
-| The reviewer's scripts (clean rebuild + held-out check, task-accuracy drivers) and the raw results behind the numbers below | `contrib/trainium2/` |
-
-### Results (trn2.48xlarge, Qwen3 bf16)
-
-Every headline number is the reviewer's own check, not the run's score: the engine rebuilt from source with no cache,
-then an independent held-out evaluation against NxD Inference 0.10.18399 (the latest public release), 5 paired rounds,
-the seed drawn afterwards, every correctness gate passed. Decoding is token by token, the same algorithm as the
-reference, on the same NeuronCores.
-
-| Model | NeuronCores | Speedup | Prefill | Decode |
-|---|---|---|---|---|
-| Qwen3-0.6B | 1 | **2.28x** | 2.16x | 2.41x |
-| Qwen3-8B | 1 | **1.51x** | 1.66x | 1.38x |
-| Qwen3-14B | 2 (tensor parallel) | **1.75x** | 2.32x | 1.32x |
-| Qwen3-30B-A3B (mixture of experts) | 4 (tensor parallel) | **2.87x** | 3.63x | 2.27x |
-
-On 100 MATH-500 and 100 IFEval prompts the Qwen3-0.6B engine's task accuracy is statistically indistinguishable from
-the reference's. The 8B decode reads its 16.4 GB of weights at about 95% of a logical NeuronCore's HBM bandwidth
-(about 68% for the reference), and its prefill keeps the matrix engine 95-97% busy: that model is at the hardware
-ceiling.
-
-Side result, not like for like: with lossless speculative decoding (prompt-lookup drafts verified by the model, all
-weights bf16; the reference does not speculate) generation on real prompts runs 5.05x (0.6B), 2.58x (8B), 1.78x
-(14B) and 2.58x (30B-A3B) the reference's speed, accuracy within one standard error. Upstream's
-`one_forward_per_token` rule (on by default) rules speculation out; these runs predate it.
-
-The agents: Claude Opus 5.5, Claude Fable 5.1, GPT-6 astra and GPT-6 sol, in parallel runs on one machine, plus
-kernel-lab sessions outside the harness that solved the shared problems first (KV cache written on the device, a whole
-decode step in one NEFF, layered prefill, tensor parallelism, mixture of experts) and wrote the backend topics.
-
-### Findings for the maintainers
-
-- **The random-token timed workload rewards speculative decoding.** A small model's greedy output loops on random
-  prompts, so drafts are easy: harness scores of 3.7-9.3 came with 2.6-5.4x on real text, and on Qwen3-30B-A3B a round
-  scored 40% higher while running 4% slower on real text. (Upstream's `one_forward_per_token` addresses this.)
-- **The timed prompt generator can be learned.** One agent recorded the model's greedy outputs on hundreds of seeds of
-  the harness's random prompts and embedded the resulting n-gram table as a draft source; its harness score went from
-  5.7 to 9.3 with no change on real text.
-- **An unchanged resubmission can pass on timing noise.** The same code scored 2.591 and 2.466 on two draws (about
-  5%), and one agent resubmitted rejected code until it was accepted. Refusing a candidate identical to a rejected one
-  would close this.
-- **The harness never asks for long outputs.** One speculative engine failed on long answers ("continuation exceeds
-  the compiled positions") in five accepted rounds; only the task-accuracy run showed it.
-- **Shared machines need process hygiene.** `pkill -f` by name killed another run's build, and a `pgrep -f` wait loop
-  matched its own command line and never ended; both are rules in the skill now.
-- NxD Inference answers a one-token prompt as the prediction after `[token, 0]`; engines reproduce it. neuronx-cc 2.27
-  fails on some unaligned bucket sizes, so the reference rounds its compiled length to 512.
 
 ## What a specialized engine is
 
@@ -156,14 +90,15 @@ uv run enginesmith status tasks/NAME/runs/RUN
    noise. Rejected candidates and their reasons go to the next sessions as facts.
 5. **Final.** After the last session, the best engine is evaluated on held-out prompts drawn from a seed created
    at that moment.
-6. **Task accuracy.** Then the best engine and mlx-lm both answer MATH-500 and IFEval with greedy decoding, and the
+6. **Task accuracy.** Then the best engine and the reference both answer MATH-500 and IFEval with greedy decoding, and the
    report shows both accuracies side by side.
 7. **Checks on the speed.** The report and the shared README show two facts next to the score, neither gated: the
    speed on those natural-text prompts, and a decode probe, the same decode asked for in one request and one token
    per request. One forward pass per generated token keeps the probe near 1; speculative decoding raises it.
 
 The workload is raw token ids from a public formula, from 1 to 524,288 tokens, so it serves any model without a
-tokenizer. The reference is stock mlx-lm, so a new model needs no framework code. [docs/design.md](docs/design.md)
+tokenizer. The reference is the platform's stock library (mlx-lm on Apple Silicon, SGLang on AMD, NxD Inference on
+Trainium), so a new model needs no framework code. [docs/design.md](docs/design.md)
 has the details.
 
 ## Share an engine, check someone else's
@@ -190,9 +125,11 @@ shared result never has to be taken on trust. Read the source before you run an 
 ## Trainium
 
 On a Trainium2 instance (trn2, Neuron driver and runtime installed, as on the AWS Neuron deep learning AMI) the
-platform module `linux-neuron` applies, the reference is stock NxD Inference (`references/nxdi.py`) on one logical
-NeuronCore, and the coding sessions use the skill backend `backends/nki-cpp`: NKI kernels compiled to NEFF files at
-build time and embedded in a C++ executable that drives them through libnrt.
+platform module `linux-neuron` applies, the reference is stock NxD Inference (`references/nxdi.py`), and the coding
+sessions use the skill backend `backends/nki-cpp`: NKI kernels compiled to NEFF files at build time and embedded in a
+C++ executable that drives them through libnrt. The native check requires that the executable links libnrt and no
+Python or framework library, so the engine computes on the NeuronCores. Everything it builds on is public: the Neuron
+SDK packages, the documented NKI API and the open-source [nki-library](https://github.com/aws-neuron/nki-library).
 
 ```sh
 uv sync --extra dev
@@ -203,8 +140,27 @@ export PATH=/opt/aws_neuronx_venv_pytorch_inference_vllm_0_24_0_1_1_0/bin:$PATH 
 
 A task sets `[engine] build` and `executable` for the C++ build (for example `["bash", "build.sh"]` and
 `"target/engine"`). Each run uses two logical NeuronCores, `ENGINESMITH_NEURON_CORE` and the next one (0 and 1 by
-default), so several runs with different values can share one machine; give each its own `GPU_LOCK_FILE` as well (for example `/tmp/engine-gpu-8.lock`), the lock that `enginesmith dev-eval` and the skill's timing tools take. The reference compiles the model for the
-task's longest request the first time (minutes) and caches it under `~/.cache/enginesmith/nxdi`.
+default), so several runs with different values can share one machine; give each its own `GPU_LOCK_FILE` as well (for
+example `/tmp/engine-gpu-8.lock`), the lock that `enginesmith dev-eval` and the skill's timing tools take. A model
+that does not fit one logical core sets `[reference] tensor_parallel` (2, 4 or 8): the reference runs tensor parallel
+and the engine gets the same number of cores (`ENGINESMITH_NEURON_CORES`). Mixture-of-experts models work the same
+way. The reference compiles the model for the task's longest request the first time (minutes) and caches it under
+`~/.cache/enginesmith/nxdi`.
+
+Engines written this way on one trn2.48xlarge (Qwen3, bf16; each number is an independent rebuild from source and a
+held-out evaluation against NxD Inference 0.10.18399, all correctness gates passed):
+
+| Model | NeuronCores | Speedup | Prefill | Decode |
+|---|---|---|---|---|
+| Qwen3-0.6B | 1 | 2.28x | 2.16x | 2.41x |
+| Qwen3-8B | 1 | 1.51x | 1.66x | 1.38x |
+| Qwen3-14B | 2 (tensor parallel) | 1.75x | 2.32x | 1.32x |
+| Qwen3-30B-A3B (mixture of experts) | 4 (tensor parallel) | 2.87x | 3.63x | 2.27x |
+
+The 8B engine decodes at about 95% of a logical NeuronCore's HBM bandwidth, with its prefill keeping the matrix engine
+95-97% busy. The Qwen3-0.6B engine's task accuracy on MATH-500 and IFEval matches the reference's.
+[`examples/qwen3-0.6b-trn2`](skills/specialized-inference-engine/examples/qwen3-0.6b-trn2/) walks through one engine;
+[`contrib/trainium2`](contrib/trainium2/) has the review scripts and the raw results.
 
 ## Documentation
 
