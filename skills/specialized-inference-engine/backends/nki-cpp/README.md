@@ -86,7 +86,8 @@ Topics of the `metal-rust` set not written yet for this backend (no measurement 
    near the end of the cache as well as at the start. The same engine failed this way in three accepted rounds.
    Do not tune to the timed prompts: a draft table built from the model's outputs on prompts drawn like the harness's
    (random token ids from its generator, many seeds) predicts those loops and inflates the harness score without helping
-   real text. Draft sources must come from the request itself (its prompt and output so far).
+   real text. Draft sources must come from the request itself (its prompt and output so far), not from the outputs of
+   earlier requests kept across calls: the timed requests are related by construction, real ones are not.
 
 ## Allowed sources: public, open-source AWS material only
 
