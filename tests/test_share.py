@@ -100,7 +100,7 @@ def test_share_publishes_a_repository_and_a_post(finished_run, tmp_path, fake_gh
     assert [c[:2] for c in calls] == [['api', 'user'], ['api', 'graphql'], ['repo', 'create'], ['api', 'graphql']]
     assert calls[2][2] == 'alice/enginesmith-test-task-round001' and '--public' in calls[2]
     title = next(arg for arg in calls[3] if arg.startswith('title='))
-    assert title.startswith('title=[engine] ') and ': test-task-round001, ' in title and title.endswith('x mlx-lm')
+    assert title.startswith('title=[engine] ') and ': test-task-round001, ' in title and title.endswith('x the reference')   # a custom reference command
     body = fake_gh.with_suffix('.body.md').read_text()
     assert 'https://github.com/alice/enginesmith-test-task-round001' in body and '## How the search went' in body
     assert 'enginesmith verify https://github.com/alice/enginesmith-test-task-round001' in body
@@ -122,3 +122,18 @@ def test_share_creates_nothing_when_it_cannot_post(finished_run, tmp_path, fake_
     monkeypatch.setenv('PATH', str(bare))
     result = share(finished_run, out=tmp_path / 'out', post=True)
     assert 'not installed' in result['post_error'] and 'posted' not in result
+
+
+def test_share_reports_the_machine_and_reference_the_run_recorded(finished_run, tmp_path):
+    state = json.loads((finished_run.dir / 'state.json').read_text())
+    assert 'machine' in state and 'reference' in state   # recorded when the run starts
+    state['machine'] = dict(state['machine'], accelerator='AMD Instinct MI325X (gfx942)')
+    state['reference'] = {'kind': 'sglang', 'version': '0.5.22'}
+    (finished_run.dir / 'state.json').write_text(json.dumps(state))
+    share(Run(finished_run.dir), out=tmp_path / 'out')   # shared from another machine: the run's facts still hold
+    package = tmp_path / 'out' / 'test-task-round001'
+    info = json.loads((package / 'enginesmith.json').read_text())
+    assert info['machine']['accelerator'] == 'AMD Instinct MI325X (gfx942)'
+    assert info['harness']['reference'] == 'sglang' and info['harness']['reference_version'] == '0.5.22'
+    readme = (package / 'README.md').read_text()
+    assert '## Speed against sglang' in readme and 'mlx-lm' not in readme and 'your own Mac' not in readme

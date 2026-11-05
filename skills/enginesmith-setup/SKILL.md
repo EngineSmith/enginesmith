@@ -54,7 +54,10 @@ uv sync --extra mlx --extra quality --extra dev   # once: the harness, the mlx-l
 uv run enginesmith doctor
 ```
 
-Read `problems` and `notes`. EngineSmith supports macOS on Apple Silicon only for now. It needs `git`, Rust
+Read `problems` and `notes`. EngineSmith supports macOS on Apple Silicon and Linux with an AMD Instinct GPU (ROCm,
+`hipcc`). On AMD the reference is SGLang: skip `--extra mlx` and set `ENGINESMITH_SGLANG_IMAGE` to an SGLang ROCm
+Apptainer image (or install `sglang` in the environment). On a Slurm cluster, run every command that touches the GPU,
+the run included, inside one allocation of one GPU. It needs `git`, Rust
 (`cargo`) and one coding agent CLI that the user is logged in to: `claude` (Claude Code), `codex` (Codex CLI), `kimi`
 (Kimi Code), `pi` or `dsh` (DeepSeek Harness). The repository does not install one. Ask before installing anything.
 

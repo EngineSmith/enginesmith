@@ -12,8 +12,9 @@ Its first engine, for LFM2.5-24B-A2B on an Apple M5 Max, was released as
 [Molten](https://github.com/zhangshuibai/molten). Over 78 agent sessions it went from 0.56x to 1.25x the
 end-to-end speed of mlx-lm.
 
-**Status: research code under active development.** Apple Silicon only for now; support for other platforms
-(CUDA, ROCm, ...) plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
+**Status: research code under active development.** Apple Silicon (mlx-lm as the reference) and AMD Instinct GPUs
+on Linux (ROCm, SGLang as the reference; see the setup skill); support for other platforms (CUDA, ...) plugs in
+without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What a specialized engine is
 
