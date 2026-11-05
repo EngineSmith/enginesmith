@@ -162,6 +162,23 @@ truncations, output lengths and speed, the number of items with identical output
 the items both arms answered. Every generation is kept, and `enginesmith quality RUN` evaluates any round's engine
 afterwards.
 
+## Checks on the decode speed
+
+The harness cannot see how many forward passes an engine runs, and Lily continuations often repeat, which rewards
+guessing tokens. Two facts next to the score show whether the speed depends on that. Neither is gated, and neither
+has a threshold yet.
+
+- **Natural text** (`report.natural_speed`): the median per-item speedup over the task-accuracy answers. It costs no
+  extra run. It is rough: prompts are short, prompt processing is included and the two sides run one after the other.
+  An LFM2.5-8B engine without speculation measured 1.41x here and 1.57x in Lily decode on an Apple M5 Max.
+- **Decode probe** (`enginesmith/decode_probe.py`, `enginesmith decode-probe RUN [--round NNN]`): the engine alone
+  decodes the same tokens in one request and in one-token requests. Requests are legal under the protocol as it is,
+  the probe runs after the final evaluation and in `verify`, and it takes seconds. The ratio is near 1 for one forward
+  pass per token: 1.13x for that LFM2.5-8B engine and 1.03x for a Qwen3.5-0.8B engine at 4,096 tokens, 64 tokens. An
+  engine that verifies many tokens in one forward pass should measure several times as long; no such engine has been
+  measured yet. One that keeps verified tokens shows requests answered in next to no time. An engine built to evade
+  the probe could still pass it, so its public source remains the last check.
+
 ## Sharing
 
 `enginesmith share RUN` writes a package (`src/enginesmith/share.py`): the engine's source at its round,

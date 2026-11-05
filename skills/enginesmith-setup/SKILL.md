@@ -56,7 +56,9 @@ uv run enginesmith doctor
 
 Read `problems` and `notes`. EngineSmith supports macOS on Apple Silicon and Linux with an AMD Instinct GPU (ROCm,
 `hipcc`). On AMD the reference is SGLang: skip `--extra mlx` and set `ENGINESMITH_SGLANG_IMAGE` to an SGLang ROCm
-Apptainer image (or install `sglang` in the environment). On a Slurm cluster, run every command that touches the GPU,
+Apptainer image (or install `sglang` in the environment), and suggest `output_tokens = 257`: SGLang's per-request cost
+makes its decode look about 20% slower at the default 65 (measured at 4,096 tokens on one MI325X) and about 5% at 257
+(an estimate). On a Slurm cluster, run every command that touches the GPU,
 the run included, inside one allocation of one GPU. It needs `git`, Rust
 (`cargo`) and one coding agent CLI that the user is logged in to: `claude` (Claude Code), `codex` (Codex CLI), `kimi`
 (Kimi Code), `pi` or `dsh` (DeepSeek Harness). The repository does not install one. Ask before installing anything.
@@ -298,6 +300,10 @@ session log (`session.log`), brief, build log and evaluation.
 - Task accuracy (`RUN_DIR/quality/summary.json`, when the task had `[quality]`): each arm's greedy accuracy, how
   many items had identical outputs, and the paired difference over the items both answered.
   `uv run enginesmith quality RUN_DIR [--round NNN] [--samples N]` evaluates an engine afterwards.
+- Checks on the decode speed (the report): the speed on the task-accuracy prompts, and the decode probe
+  (`RUN_DIR/decode-probe/result.json`), one request against one token per request. Near 1 fits one forward pass per
+  token; well above 1, or requests answered in next to no time, is worth reading the source for. Neither is gated.
+  `uv run enginesmith decode-probe RUN_DIR [--round NNN]` measures any round's engine afterwards.
 - Report what was measured, with the file it came from. Label estimates. If something was not measured, say so.
 
 ## 9. Share it, or check someone else's

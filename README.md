@@ -90,6 +90,9 @@ uv run enginesmith status tasks/NAME/runs/RUN
    at that moment.
 6. **Task accuracy.** Then the best engine and mlx-lm both answer MATH-500 and IFEval with greedy decoding, and the
    report shows both accuracies side by side.
+7. **Checks on the speed.** The report and the shared README show two facts next to the score, neither gated: the
+   speed on those natural-text prompts, and a decode probe, the same decode asked for in one request and one token
+   per request. One forward pass per generated token keeps the probe near 1; speculative decoding raises it.
 
 The workload is raw token ids from a public formula, from 1 to 524,288 tokens, so it serves any model without a
 tokenizer. The reference is stock mlx-lm, so a new model needs no framework code. [docs/design.md](docs/design.md)

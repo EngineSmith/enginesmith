@@ -7,9 +7,12 @@ import io
 import json
 import statistics
 import time
+from pathlib import Path
 
 from enginesmith import agents
 from enginesmith.task import decode_rule
+
+NATURAL_TITLES = {'math500': 'MATH-500', 'ifeval': 'IFEval'}
 
 
 # One row per decided round, then one for the held-out final. The per-case columns follow, for every task length.
@@ -139,7 +142,58 @@ def build(run) -> dict:
             'incumbent': s['incumbent'],
             'best': {'round': s['incumbent'], 'score': best['score'], 'segments': best['segments'],
                      'cases': _cases(best)} if best else None,
-            'final': s['final'], 'quality': _quality(run), 'milestones': milestones(run, rows), 'history': rows}
+            'final': s['final'], 'quality': _quality(run), 'decode_probe': probe_result(run, s['incumbent']),
+            'natural_speed': natural_speed(run.dir / 'quality')
+            or natural_speed(run.dir / f'quality-round-{s["incumbent"]}'),
+            'milestones': milestones(run, rows), 'history': rows}
+
+
+def probe_result(run, label: str | None) -> dict | None:
+    """The decode probe of a round's engine: the run's own, or a later `enginesmith decode-probe RUN --round`."""
+    for name in ('decode-probe', f'decode-probe-round-{label}'):
+        path = run.dir / name / 'result.json'
+        if label and path.is_file() and (result := json.loads(path.read_text())).get('round') == label:
+            return result
+    return None
+
+
+def probe_text(probe: dict | None) -> str:
+    if not probe:
+        return 'not measured'
+    if probe.get('error'):
+        return f'failed ({probe["error"]})'
+    return (f'{probe["tokens"]} one-token requests took {probe["ratio"]:.2f}x as long as one request for the same '
+            f'tokens at {probe["length"]:,} prompt tokens ({probe["apart_ms"]:,.1f} ms against '
+            f'{probe["together_ms"]:,.1f} ms; each request {probe["fastest_request_ms"]:,.2f} to '
+            f'{probe["slowest_request_ms"]:,.2f} ms'
+            + ('' if probe['identical'] else '; the two token streams differed') + ')')
+
+
+def natural_speed(directory: Path) -> dict | None:
+    """Speed on the task-accuracy prompts, from the answers already recorded: the median over the items both sides
+    answered of reference seconds per token / engine seconds per token. Prompt processing is included and the two
+    sides ran one after the other, so it is a rough figure. None when there are no answers."""
+    speed = {}
+    for name in NATURAL_TITLES:
+        arms = {}
+        for arm in ('reference', 'engine'):
+            path = directory / f'{name}-{arm}.jsonl'
+            rows = map(json.loads, path.read_text().splitlines()) if path.is_file() else ()
+            arms[arm] = {row['id']: row for row in rows if row.get('id') and row.get('output_tokens')}
+        paired = arms['reference'].keys() & arms['engine'].keys()
+        if paired:
+            per_token = lambda arm, i: arms[arm][i]['seconds'] / arms[arm][i]['output_tokens']
+            speed[name] = {'items': len(paired), 'speedup': statistics.median(
+                per_token('reference', i) / per_token('engine', i) for i in paired)}
+    return speed or None
+
+
+def natural_text(speed: dict | None) -> str:
+    if not speed:
+        return 'not measured (no task accuracy answers)'
+    measured = (f'{NATURAL_TITLES[name]} {row["speedup"]:.2f}x ({row["items"]} items)' for name, row in speed.items())
+    return (', '.join(measured) + ', median per item, prompt processing included, the two sides run one after the '
+            'other: a rough figure')
 
 
 def _quality(run) -> dict | None:
@@ -246,6 +300,9 @@ Held-out final: {e(final_text)}.</p>
 <p class="muted">Speedups are reference time / engine time (higher is better). Objective: prefill weight
 {data["objective"]["prefill"]:g}, decode weight {data["objective"]["decode"]:g}. Decode:
 {e(decode_rule(data.get("one_forward_per_token")))}.</p>
+<p class="muted">Natural-text speed: {e(natural_text(data["natural_speed"]))}. Decode probe:
+{e(probe_text(data["decode_probe"]))}; one forward pass per generated token keeps this near 1, speculative decoding
+raises it.</p>
 <p>{milestone_text}</p>
 <h2>Best engine by case</h2>
 <div class="scroll"><table><tr><th>prompt tokens</th><th>prefill speedup</th><th>decode speedup</th>

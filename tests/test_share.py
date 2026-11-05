@@ -36,6 +36,8 @@ def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model
     assert (package / 'source' / 'engine').is_file() and not (package / 'bin').exists()   # a build holds host paths
     readme = (package / 'README.md').read_text()
     assert '- Decode: one forward pass per generated token' in readme
+    assert '- Decode probe: 7 one-token requests took' in readme and '- Natural text: not measured' in readme
+    assert info['decode_probe']['identical'] and info['natural_speed'] is None
     assert 'enginesmith verify test-task-round001.zip' in readme and '| 64 |' in readme
     for text in (readme, (package / 'enginesmith.json').read_text()):
         assert str(tmp_path) not in text and 'FAKE_AGENT' not in text and 'fake_agent' not in text
@@ -62,6 +64,7 @@ def test_verify_builds_the_shared_source_and_evaluates_it_here(finished_run, tmp
                     reference=fake_engine('--reference'), log=lambda m: None)
     assert result['passed'] and result['built_from_source'] and 1.4 < result['score'] < 2.6
     assert result['claimed']['passed'] and (tmp_path / 'check' / 'verify.json').is_file()
+    assert result['decode_probe']['identical'] and result['decode_probe']['tokens'] == 7
     assert shared['zip'].endswith('.zip')
 
 

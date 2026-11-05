@@ -22,6 +22,7 @@ files = [
     "src/enginesmith/agents.py",              # coding sessions; adding an agent's entries is a welcome change
     "src/enginesmith/brief.py",
     "src/enginesmith/cli.py",
+    "src/enginesmith/decode_probe.py",
     "src/enginesmith/dev_eval.py",
     "src/enginesmith/engine_repo.py",
     "src/enginesmith/explain.py",

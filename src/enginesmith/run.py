@@ -180,6 +180,8 @@ class Run:
             return True
         if phase == 'final':
             self._final()
+            if self.state['incumbent'] and not self.state.get('error'):
+                self.decode_probe(self.state['incumbent'], self.dir / 'decode-probe')
             run_quality = self.task.quality and self.state['incumbent'] and not self.state.get('error')
             self.state['phase'] = 'quality' if run_quality else 'done'
             self.save()
@@ -481,6 +483,23 @@ class Run:
         summary.update(round=label, harness=digest)
         (directory / 'summary.json').write_text(json.dumps(summary, indent=2))
         return summary
+
+    def decode_probe(self, label: str, directory: Path) -> dict:
+        """The decode probe (enginesmith.decode_probe) of one round's engine. Report-only: a failure is recorded and
+        never changes the run's outcome."""
+        from enginesmith import decode_probe
+        self.event(f'decode probe: round {label}, one request against one token per request')
+        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            result = decode_probe.run([str(self.round_dir(label) / 'engine'), '--model', str(self.task.model)],
+                                      self.task.vocab_size, min(self.task.lengths),
+                                      max(self.task.output_tokens - 1, 2), directory, self.registry)
+        except Exception as exc:  # report-only, like task accuracy
+            result = {'error': f'{type(exc).__name__}: {exc}'[:2000]}
+            self.event(f'decode probe: failed: {exc}')
+        result['round'] = label
+        write_json(directory / 'result.json', result)
+        return result
 
     def _quality(self) -> None:
         label = self.state['incumbent']

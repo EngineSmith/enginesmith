@@ -95,6 +95,9 @@ def main(argv=None) -> int:
     p.add_argument('--samples', type=int, help='items per benchmark')
     p.add_argument('--max-tokens', type=int, help='output tokens per item')
     p.add_argument('--time-limit', help='for all benchmarks and both arms, e.g. "2h"')
+    p = sub.add_parser('decode-probe', help="time a run's engine decoding in one request and one token per request")
+    p.add_argument('run', type=Path)
+    p.add_argument('--round', help='the round whose engine to time (default: the best engine)')
     p = sub.add_parser('share', help="publish a run's engine: a repository of your GitHub account with its source "
                        "and data, and a post in EngineSmith's Discussions (uses gh)")
     p.add_argument('run', type=Path)
@@ -215,6 +218,15 @@ def main(argv=None) -> int:
             with contextlib.redirect_stdout(sys.stderr):  # progress lines; the summary alone goes to stdout
                 summary = run.quality(label, settings, run.dir / f'quality-round-{label}', during_run=False)
             emit(summary)
+        elif args.command == 'decode-probe':
+            from enginesmith.run import Run
+            run = Run(args.run)
+            label = args.round or run.state['incumbent']
+            if not label:
+                raise TaskError('the run has no best engine; name a round with --round')
+            with contextlib.redirect_stdout(sys.stderr):
+                result = run.decode_probe(label, run.dir / f'decode-probe-round-{label}')
+            emit(result)
         elif args.command == 'share':
             from enginesmith.run import Run
             from enginesmith.share import share

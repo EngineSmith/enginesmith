@@ -7,7 +7,7 @@ with sleeps: PREFILL_S per prompt token and DECODE_S per generated token, divide
 Flags: --reference (also answers judge and stats), --wrong-from K (tokens from step K on are off by one),
 --wrong-length N (only for prompts of length N), --speed F, --crash-after N (exit after N generate requests),
 --load-s S (sleep before answering hello), --leak (start a long-lived child process), --rank R (the rank a
-reference reports for a mismatching token).
+reference reports for a mismatching token), --speculate N (one forward pass per N tokens of a request).
 """
 import argparse
 import json
@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--wrong-from', type=int)
     parser.add_argument('--wrong-length', type=int)
     parser.add_argument('--speed', type=float, default=1.0)
+    parser.add_argument('--speculate', type=int, default=1)
     parser.add_argument('--crash-after', type=int)
     parser.add_argument('--load-s', type=float, default=0.0)
     parser.add_argument('--leak', action='store_true')
@@ -62,7 +63,7 @@ def main():
                 sequence.append(token)
                 tokens.append(token)
                 generated += 1
-            time.sleep(DECODE_S * request['max_tokens'] / args.speed)
+            time.sleep(DECODE_S * (-(-request['max_tokens'] // args.speculate)) / args.speed)
             reply['tokens'] = tokens
         elif op == 'judge' and args.reference:
             sequence = list(request['prompt'])

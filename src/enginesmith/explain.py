@@ -217,10 +217,12 @@ def explain(task: Task) -> str:
     q = task.quality
     out += ['## 8. After the search', '',
             f'- Final: the best engine is evaluated once more, {e.final_rounds} paired rounds on held-out prompts drawn '
-            'from a seed created after the last session; this is the result to report.']
+            'from a seed created after the last session; this is the result to report.',
+            '- Decode probe: the best engine decodes the same tokens in one request and one token per request; '
+            'the ratio is reported, not gated.']
     out.append(f'- Task accuracy: {", ".join(q.benchmarks)}, {q.samples} items each, greedy decoding, at most '
                f'{q.max_tokens:,} output tokens, time limit {_hours(q.time_limit_s)}; the engine and mlx-lm answer the '
-               'same items; reported next to each other, not gated.' if q else
+               'same items; reported next to each other with the speed on these prompts, not gated.' if q else
                '- Task accuracy: not run (no `[quality]` table).')
     out += ['']
 

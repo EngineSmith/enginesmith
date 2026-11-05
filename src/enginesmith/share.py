@@ -23,7 +23,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from enginesmith import __version__, agents, engine_repo, references, report, workload
+from enginesmith import __version__, agents, decode_probe, engine_repo, references, report, workload
 from enginesmith.report import _cases
 from enginesmith.brief import reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
@@ -77,10 +77,14 @@ def describe(run, label: str) -> dict:
     if (s.get('final') or {}).get('round') == label:
         path = run.dir / 'final' / 'evaluation' / 'result.json'
         final_result = json.loads(path.read_text()) if path.is_file() else None
-    quality = None  # the run's own task accuracy, or a later `enginesmith quality RUN --round` of this round
+    # The run's own task accuracy, or a later `enginesmith quality RUN --round` of this round.
+    quality, natural = None, None
     for path in (run.dir / 'quality' / 'summary.json', run.dir / f'quality-round-{label}' / 'summary.json'):
         if path.is_file() and json.loads(path.read_text()).get('round', (s.get('quality') or {}).get('round')) == label:
-            quality = json.loads(path.read_text())
+            quality, natural = json.loads(path.read_text()), report.natural_speed(path.parent)
+    probe = report.probe_result(run, label)
+    if probe and probe.get('error'):
+        probe = {'round': label, 'error': 'see the run'}   # the message can hold host paths
     search = run.evaluation(label)
     costs = [((run.record(r['label']) or {}).get('session') or {}).get('cost_usd') for r in s['rounds']]
     rows = report.history(run)
@@ -106,7 +110,7 @@ def describe(run, label: str) -> dict:
         'final': final_result and {'passed': final_result['passed'], 'score': final_result['score'],
                                    'segments': final_result['segments'], 'gates': final_result['gates'],
                                    'cases': _cases(final_result)},
-        'quality': quality,
+        'quality': quality, 'natural_speed': natural, 'decode_probe': probe,
         # The run's evolution, without failure messages (they can hold host paths).
         'history': [{key: value for key, value in row.items() if key != 'failure_message'} for row in rows],
         'milestones': report.milestones(run, rows),
@@ -182,6 +186,10 @@ def readme(info: dict, repository: str | None = None) -> str:
               f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
               f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
     lines.append('')
+    lines += ['## Checks on the decode speed', '',
+              f'- Natural text: {report.natural_text(info.get("natural_speed"))}.',
+              f'- Decode probe: {report.probe_text(info.get("decode_probe"))}. One forward pass per generated token '
+              'keeps this near 1; speculative decoding raises it.', '']
     ms, history = info.get('milestones') or {}, [r for r in info.get('history') or [] if r['kind'] != 'final']
     if history:
         reached = lambda key, what: (f'{what}: round {ms[key]["round"]}, {ms[key]["minutes"]:.0f} min after the start'
@@ -464,11 +472,17 @@ def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths
     with Watchdog([registry]):
         result = Evaluator(reference, [str(executable), '--model', str(model)], plan, work / 'evaluation',
                            registry=registry, log=log).run()
+        log('decode probe: one request against one token per request')
+        try:
+            probe = decode_probe.run([str(executable), '--model', str(model)], vocab, min(chosen),
+                                     max(s['output_tokens'] - 1, 2), work / 'decode-probe', registry)
+        except Exception as exc:  # report-only
+            probe = {'error': f'{type(exc).__name__}: {exc}'[:2000]}
     summary = {'package': info['name'], 'machine': machine(), 'passed': result['passed'], 'failure': result['failure'],
                'score': result['score'], 'segments': result['segments'], 'gates': result['gates'],
                'cases': _cases(result), 'claimed': info['final'] or info['search']['evaluation'],
                'evaluation_version': {'package': judged, 'here': EVALUATION_VERSION},
-               'built_from_source': not use_binary}
+               'built_from_source': not use_binary, 'decode_probe': probe}
     (work / 'verify.json').write_text(json.dumps(summary, indent=2))
     (work / 'evaluation' / 'result.json').write_text(json.dumps(result, indent=2))
     summary['directory'] = str(work)
