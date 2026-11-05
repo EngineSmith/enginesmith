@@ -23,7 +23,9 @@ speed up the engine; it never restates the contract.
    prompts and request shapes before timing anything. See `references/correctness.md`.
 3. **Measure, never guess, and measure the right thing.** Time two builds interleaved (A, B, B, A) on fresh prompts,
    compare ratios rather than absolute numbers, and know your noise floor. Thermal throttling and other GPU users
-   move absolute numbers by several percent. See `references/measurement.md`.
+   move absolute numbers by several percent. Run `enginesmith dev-eval` and every timing tool in the foreground and
+   read its output when it returns: a backgrounded run polled with `pgrep -f` matches the polling shell's own command
+   line and never ends. See `references/measurement.md`.
 4. **Know the floor.** Decode time per token is bounded below by bytes read per token divided by the measured
    streaming bandwidth. Compute it on day one (`references/model-card.md`) and judge every kernel against it.
 5. **One mechanism per change, with its measured effect.** Record what you changed, how you verified it and what
