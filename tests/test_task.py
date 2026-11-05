@@ -102,7 +102,8 @@ def test_one_forward_per_token_is_on_by_default_and_sets_the_brief_rule(tmp_path
     monkeypatch.setenv('CLAUDECODE', '1')
     rule = 'one forward pass of the checkpoint per generated token'
     path = tmp_path / 'task.toml'
-    minimal = f'name = "m"\n[model]\npath = "{model_dir.name}"\n'
+    # A custom reference command, so that the brief does not depend on the platform's default reference.
+    minimal = f'name = "m"\n[model]\npath = "{model_dir.name}"\n[reference]\ncommand = ["reference"]\n'
     path.write_text(minimal)
     task = load_task(path)
     assert task.one_forward_per_token is True and rule in contract(task, 'generate', 'an empty project')
