@@ -15,7 +15,7 @@ from pathlib import Path
 from enginesmith import agents, references, workload
 from enginesmith.brief import reference_argv, reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, MIN_TIMEOUT, TIMEOUT_FACTOR
-from enginesmith.task import Task
+from enginesmith.task import Task, decode_rule
 
 
 def _hours(seconds: float) -> str:
@@ -91,6 +91,7 @@ def explain(task: Task) -> str:
             f'- Model: `{task.model.name}`' + (f' from `{task.model_source}`' if task.model_source else '')
             + f' (vocabulary bound for prompts: {task.vocab_size:,}).']
     out += _architecture(task)
+    out += [f'- Decode: {decode_rule(task.one_forward_per_token)}.']
     kind = reference_kind(task)
     described = {'mlx-lm': 'stock mlx-lm, reproducing `generate_step` token for token: prefill in chunks of '
                            'min(2048, remaining - 1) tokens, the last prompt token alone, greedy decoding pipelined '

@@ -35,6 +35,7 @@ def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model
     assert set(info['model']['files']) == {'config.json', 'weights.bin'}
     assert (package / 'source' / 'engine').is_file() and not (package / 'bin').exists()   # a build holds host paths
     readme = (package / 'README.md').read_text()
+    assert '- Decode: one forward pass per generated token' in readme
     assert 'enginesmith verify test-task-round001.zip' in readme and '| 64 |' in readme
     for text in (readme, (package / 'enginesmith.json').read_text()):
         assert str(tmp_path) not in text and 'FAKE_AGENT' not in text and 'fake_agent' not in text

@@ -3,7 +3,8 @@ import json
 import pytest
 
 from conftest import write_task
-from enginesmith.task import DEFAULT_SKILL, Task, TaskError, load_task
+from enginesmith.brief import contract
+from enginesmith.task import DEFAULT_SKILL, Task, TaskError, decode_rule, load_task
 
 
 def test_a_minimal_task_takes_the_defaults(tmp_path, model_dir, monkeypatch):
@@ -95,3 +96,33 @@ def test_the_model_source_is_a_repository_id(tmp_path, model_dir):
                '[agent]\nkind = "claude"\n')
     with pytest.raises(TaskError, match='Hugging Face repository'):
         load_task(path)
+
+
+def test_one_forward_per_token_is_on_by_default_and_sets_the_brief_rule(tmp_path, model_dir, monkeypatch):
+    monkeypatch.setenv('CLAUDECODE', '1')
+    rule = 'one forward pass of the checkpoint per generated token'
+    path = tmp_path / 'task.toml'
+    minimal = f'name = "m"\n[model]\npath = "{model_dir.name}"\n'
+    path.write_text(minimal)
+    task = load_task(path)
+    assert task.one_forward_per_token is True and rule in contract(task, 'generate', 'an empty project')
+    assert 'no speculative decoding' in decode_rule(task.one_forward_per_token)
+
+    path.write_text(minimal + '[engine]\none_forward_per_token = false\n')
+    task = load_task(path)
+    assert task.one_forward_per_token is False and rule not in contract(task, 'generate', 'an empty project')
+    assert 'allowed' in decode_rule(task.one_forward_per_token)
+
+    path.write_text(minimal + '[engine]\none_forward_per_token = "no"\n')
+    with pytest.raises(TaskError):
+        load_task(path)
+
+
+def test_a_run_from_before_the_rule_stays_unrecorded(tmp_path, model_dir, monkeypatch):
+    monkeypatch.setenv('CLAUDECODE', '1')
+    path = tmp_path / 'task.toml'
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n')
+    frozen = load_task(path).to_json()
+    del frozen['one_forward_per_token']
+    task = Task.from_json(frozen)
+    assert task.one_forward_per_token is None and 'not recorded' in decode_rule(task.one_forward_per_token)

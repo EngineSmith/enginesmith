@@ -31,7 +31,9 @@ engine serves one, and is free to exploit everything it knows about it. That nar
   specialized and fused. It does not hand the model to a framework, graph compiler or inference runtime (MLX,
   PyTorch, Core ML, llama.cpp and the like).
 - **Same model, same answers.** Specialization changes how the model is computed, not which model it is: the engine
-  reads the checkpoint as downloaded, and its tokens must match the reference's within the correctness gates.
+  reads the checkpoint as downloaded, and its tokens must match the reference's within the correctness gates. By
+  default it computes one forward pass per generated token: speculative decoding is a different algorithm from the
+  reference's, so a task has to allow it (`[engine] one_forward_per_token = false`), and its results say so.
 - **Native and self-contained.** The build produces one native executable that needs nothing but the model
   directory. At run time it loads no Python and starts no Python process. The tools used to develop and build it
   may be anything, Python included: only the executable counts.

@@ -56,6 +56,8 @@ def contract(task: Task, kind: str, start: str) -> str:
     native = ('\n- The engine must be native and self-contained: one executable that does not load Python, MLX, '
               'mlx-lm or any other inference runtime, and needs no files other than the model directory. You may '
               'read and adapt the source of any open-source project (respect its license).') if task.native else ''
+    forward = ('\n- Decode computes one forward pass of the checkpoint per generated token: no draft models, and no '
+               'drafted, speculated or looked-up tokens verified in batches.') if task.one_forward_per_token else ''
     card = '\n- `brief/model-card.md`: the model card written when this task was set up.' if task.model_card else ''
     quality = ('\n6. Then the best engine and the reference answer MATH-500 and IFEval with greedy decoding, and '
                'the accuracy is reported next to the reference\'s.') if task.quality else ''
@@ -83,7 +85,7 @@ it, and the next session starts from there. The session ends at the latest after
 - The source in `engine/`. It is a git checkout; when the session ends the harness commits everything in it except
   what `.gitignore` excludes (keep `target/` ignored). Do not commit model weights or large generated files.
 - The harness builds a clean checkout of that commit with `{' '.join(task.build)}` and runs `{task.executable}` from
-  it. The build must produce that one executable.{native}
+  it. The build must produce that one executable.{native}{forward}
 - Keep `engine/NOTES.md` up to date: what you changed, how you verified it, what it measured, and what you tried
   and rejected, with numbers. It travels with the engine to the next session.
 

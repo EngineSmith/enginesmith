@@ -45,6 +45,8 @@ not scored.
   always return exactly `max_tokens` ids, each below the vocabulary size. After a reply, the state has consumed
   the prompt and every emitted token except the last one.
 - Finish all GPU work before replying.
+- Under the task's default `[engine] one_forward_per_token`, decode computes one forward pass per generated token:
+  no draft models, and no drafted, speculated or looked-up tokens verified in batches.
 
 Prompts can be as long as the task's longest workload length (up to 524,288 tokens; the JSON line is then a few
 megabytes). Token ids are only guaranteed to be below the model's `vocab_size`; they are not natural text.

@@ -9,6 +9,7 @@ import statistics
 import time
 
 from enginesmith import agents
+from enginesmith.task import decode_rule
 
 
 # One row per decided round, then one for the held-out final. The per-case columns follow, for every task length.
@@ -130,7 +131,7 @@ def build(run) -> dict:
     rows = history(run)
     best = run.evaluation(s['incumbent']) if s['incumbent'] else None
     return {'name': t.name, 'model': str(t.model), 'agent': t.agent, 'phase': s['phase'],
-            'evaluation_version': s.get('evaluation_version'),
+            'evaluation_version': s.get('evaluation_version'), 'one_forward_per_token': t.one_forward_per_token,
             'created': s['created'], 'deadline': s['deadline'], 'updated': time.time(),
             'search_end': s['search_end'], 'error': s['error'], 'sessions': s['sessions'],
             'current_round': s['current'], 'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
@@ -243,7 +244,8 @@ th {{ color: var(--muted); font-weight: 600; }}
 {f"(score {_x(best['score'])}, prefill {_x(best['segments']['prefill'])}, decode {_x(best['segments']['decode'])})" if best else ""}.
 Held-out final: {e(final_text)}.</p>
 <p class="muted">Speedups are reference time / engine time (higher is better). Objective: prefill weight
-{data["objective"]["prefill"]:g}, decode weight {data["objective"]["decode"]:g}.</p>
+{data["objective"]["prefill"]:g}, decode weight {data["objective"]["decode"]:g}. Decode:
+{e(decode_rule(data.get("one_forward_per_token")))}.</p>
 <p>{milestone_text}</p>
 <h2>Best engine by case</h2>
 <div class="scroll"><table><tr><th>prompt tokens</th><th>prefill speedup</th><th>decode speedup</th>

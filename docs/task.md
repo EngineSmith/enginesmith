@@ -19,6 +19,7 @@ copies the resolved task into `RUN/task.json` when it starts; nothing changes it
 | `build` | `["cargo", "build", "--release"]` | the build command, run in a clean checkout of the candidate |
 | `executable` | `target/release/engine` | the executable the build produces, relative to the source |
 | `native` | true | require a Mach-O executable that links no Python or MLX library |
+| `one_forward_per_token` | true | the session brief requires one forward pass per generated token, which rules out speculative decoding. The harness cannot check it; shared engines publish their source. `false` allows speculative decoding, and the plan, the report and the shared README say the speedups are not like for like |
 | `skill` | `skills/specialized-inference-engine` | the skill directory copied into every session's brief |
 | **[agent]** | | |
 | `kind` | the agent this shell runs in | `claude`, `codex`, `kimi`, `pi`, `dsh` or `command` (docs/design.md, sessions). Left out, it is the agent the task is loaded from (`enginesmith doctor` reports it as `current_agent`); a shell in no recognized agent must name it |

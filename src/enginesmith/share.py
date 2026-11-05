@@ -29,7 +29,7 @@ from enginesmith.brief import reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog
-from enginesmith.task import REPO, Gates, Objective, model_config
+from enginesmith.task import REPO, Gates, Objective, model_config, decode_rule
 
 FORMAT = 1
 ATTACHMENT_LIMIT = 25 * 1024 * 1024  # the largest file a GitHub Discussions post accepts
@@ -87,7 +87,8 @@ def describe(run, label: str) -> dict:
     return {
         'format': FORMAT,
         'name': f'{t.name}-round{label}',
-        'engine': {'round': label, 'build': list(t.build), 'executable': t.executable, 'native': t.native},
+        'engine': {'round': label, 'build': list(t.build), 'executable': t.executable, 'native': t.native,
+                   'one_forward_per_token': t.one_forward_per_token},
         'model': {'name': t.model.name, 'source': t.model_source, 'revision': model_revision(t.model),
                   'vocab_size': t.vocab_size, 'files': model_files(t.model)},
         'machine': s.get('machine') or machine(),
@@ -159,6 +160,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                  + f', {(mc["memory_bytes"] or 0) / 2**30:.0f} GiB, {mc["os"]}',
              f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip(),
              f'- Judged under evaluation version {info["harness"]["evaluation_version"] or "(unrecorded)"}',
+             f'- Decode: {decode_rule(info["engine"].get("one_forward_per_token"))}',
              *([f'- Source{", binary" if info["engine"].get("binary") else ""} and data: {repository}']
                if repository else []),
              f'- Search: {info["search"]["rounds"]} rounds by {_agent(info)}'

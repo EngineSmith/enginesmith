@@ -108,6 +108,7 @@ class Task:
     quality: Quality | None = None
     model_source: str | None = None  # the Hugging Face repository the model was downloaded from (for sharing)
     reference_kind: str | None = None  # enginesmith.references.KINDS; None: the platform's default
+    one_forward_per_token: bool | None = True  # the brief's decode rule; None: a run from before the rule
 
     def cases(self) -> list[workload.Case]:
         return workload.cases(self.lengths, self.output_tokens, self.objective.length_weights, self.controls)
@@ -141,10 +142,22 @@ class Task:
                    Acceptance(**data['acceptance']), Gates(**data['gates']), Evaluation(**data['evaluation']),
                    Budget(**data['budget']),
                    Quality(**{**data['quality'], 'benchmarks': tuple(data['quality']['benchmarks'])})
-                   if data.get('quality') else None, data.get('model_source'), data.get('reference_kind'))
+                   if data.get('quality') else None, data.get('model_source'), data.get('reference_kind'),
+                   data.get('one_forward_per_token'))
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.to_json(), sort_keys=True).encode()).hexdigest()
+
+
+def decode_rule(one_forward_per_token: bool | None) -> str:
+    """The decode rule a run worked under, as plans, reports and shared engines state it."""
+    if one_forward_per_token is None:
+        return 'not recorded (this run predates the one-forward-per-token rule)'
+    if one_forward_per_token:
+        return ('one forward pass per generated token, no speculative decoding (a rule in the session brief; the '
+                'harness cannot check it)')
+    return ('speculative decoding allowed; the speedups are not like for like unless the reference uses the same '
+            'algorithm')
 
 
 def duration(value, name: str, zero: bool = False) -> float:
@@ -248,12 +261,16 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
     if reference_kind and reference:
         raise TaskError('give reference.kind or reference.command, not both')
 
-    e = _table(data, 'engine', {'seed', 'evaluate_seed', 'build', 'executable', 'native', 'skill'})
+    e = _table(data, 'engine', {'seed', 'evaluate_seed', 'build', 'executable', 'native', 'one_forward_per_token',
+                                'skill'})
     seed = _path(base, e['seed'], 'engine.seed') if 'seed' in e else None
     evaluate_seed = e.get('evaluate_seed', seed is not None)
     native = e.get('native', True)
     if type(evaluate_seed) is not bool or type(native) is not bool:
         raise TaskError('engine.evaluate_seed and engine.native must be true or false')
+    one_forward = e.get('one_forward_per_token', True)
+    if type(one_forward) is not bool:
+        raise TaskError('engine.one_forward_per_token must be true or false')
     if evaluate_seed and seed is None:
         raise TaskError('engine.evaluate_seed needs engine.seed')
     build = _argv(e.get('build', ['cargo', 'build', '--release']), 'engine.build')
@@ -355,7 +372,7 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
             raise TaskError(f'engine.skill: {skill} has no SKILL.md')
     return Task(path, name, model, card, vocab, reference, seed, evaluate_seed, build, executable, native, skill,
                 agent, agent_model, agent_command, tuple(sorted(lengths)), output_tokens, controls, objective,
-                acceptance, gates, evaluation, budget, quality, source, reference_kind)
+                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward)
 
 
 def _quality(data: dict) -> Quality:
