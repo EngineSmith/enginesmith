@@ -157,6 +157,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                      for c in results['cases'])
     source = f'[{m["source"]}](https://huggingface.co/{m["source"]})' if m['source'] else m['name']
     revision = f' at revision `{m["revision"]}`' if m['revision'] else ''
+    ref = info['harness']['reference'] or 'the reference'
     lines = [f'# {info["name"]}', '',
              f'A specialized inference engine for {source}{revision}, built with EngineSmith {info["harness"]["version"]}.',
              '', f'- Machine: {mc["accelerator"] or mc["chip"]}'

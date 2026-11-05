@@ -54,8 +54,8 @@ uv sync --extra mlx --extra quality --extra dev   # once: the harness, the mlx-l
 uv run enginesmith doctor
 ```
 
-Read `problems` and `notes`. EngineSmith supports macOS on Apple Silicon and Linux with an AMD Instinct GPU (ROCm,
-`hipcc`). On AMD the reference is SGLang: skip `--extra mlx` and set `ENGINESMITH_SGLANG_IMAGE` to an SGLang ROCm
+Read `problems` and `notes`. EngineSmith supports macOS on Apple Silicon, Linux with an AMD Instinct GPU (ROCm,
+`hipcc`) and Linux on AWS Trainium2 (below). On AMD the reference is SGLang: skip `--extra mlx` and set `ENGINESMITH_SGLANG_IMAGE` to an SGLang ROCm
 Apptainer image (or install `sglang` in the environment), and suggest `output_tokens = 257`: SGLang's per-request cost
 makes its decode look about 20% slower at the default 65 (measured at 4,096 tokens on one MI325X) and about 5% at 257
 (an estimate). On a Slurm cluster, run every command that touches the GPU,
@@ -86,6 +86,29 @@ the task file.
   install (Node 24.9 or later; ask first). npm 11 skips install scripts unless allowed, among them the one that makes
   the helper dsh spawns commands with executable, so install it with
   `npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh`.
+
+### On AWS Trainium2 (`platform: linux-neuron`)
+
+- **Install the reference** (NxD Inference) instead of `--extra mlx`:
+  `uv pip install --index-strategy unsafe-best-match --extra-index-url https://pip.repos.neuron.amazonaws.com
+  "neuronx-distributed-inference==0.10.18399+ed62453e" "neuronx-cc==2.27.5334.0+f702b353" "islpy==2026.1"
+  "numpy==2.3.5"`, and put a Neuron virtual environment's `bin/` on `PATH` before `enginesmith run` (the engine
+  builds call `neuronx-cc` and `nki`), for example `/opt/aws_neuronx_venv_pytorch_inference_vllm_0_24_0_1_1_0/bin` on
+  the Neuron deep learning AMI.
+- **The model** is the Hugging Face checkpoint as published (bf16 safetensors), of a family NxD Inference supports
+  (Llama, Qwen2/3, Qwen3-MoE, Mixtral, Mistral, gpt-oss, Gemma 3, ...), small enough for one logical NeuronCore:
+  24 GiB of HBM for the weights and the KV cache (Qwen3-8B in bf16 fits; larger models need tensor parallelism,
+  which the reference does not do yet).
+- **The task** sets the C++ build: `[engine] build = ["bash", "build.sh"]` and `executable = "target/engine"`; the
+  sessions use `skills/specialized-inference-engine/backends/nki-cpp/README.md`. `[reference] kind` defaults to `nxdi`.
+- **Cores.** A run uses two logical NeuronCores, `ENGINESMITH_NEURON_CORE` and the next one (0 and 1 by default); its
+  sessions also use the next two for experiments and builds. Several runs can share a trn2.48xlarge with different
+  values (0, 4, 8, ...) and their own `GPU_LOCK_FILE`.
+- **First use is slow.** `enginesmith prepare` compiles the reference for the task's longest request (5 minutes
+  for Qwen3-0.6B, about 20 for Qwen3-8B) and caches it under `~/.cache/enginesmith/nxdi`.
+- **A reference quirk the engines must reproduce:** for a one-token prompt NxD Inference pads the prompt with token
+  0 and returns the prediction at the pad position, so its first token is the model's prediction after
+  `[token, 0]`, not after `[token]` (the control prompt of length 1 checks it).
 
 ## 2. Agree on the task
 

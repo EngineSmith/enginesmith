@@ -34,7 +34,7 @@ def reference_argv(task: Task) -> list[str]:
     kind = reference_kind(task)
     if kind is None:
         raise ValueError(f'the {current().NAME} platform has no default reference; set [reference] kind or command')
-    return references.command(kind, task.model)
+    return references.command(kind, task.model, task.max_request_length(), task.reference_tp)
 
 
 def _percent(value: float) -> str:
@@ -53,8 +53,11 @@ def contract(task: Task, kind: str, start: str) -> str:
     if a.case_improvement:
         rules.append(f'one case\'s prefill or decode speedup improves by at least {_percent(a.case_improvement)}, '
                      f'while the score gets worse by at most {_percent(a.max_regression)}')
-    native = ('\n- The engine must be native and self-contained: one executable that does not load Python, MLX, '
-              'mlx-lm or any other inference runtime, and needs no files other than the model directory. You may '
+    native = ('\n- The engine must be native and self-contained: one executable that does not load Python, a '
+              'machine-learning framework (MLX, PyTorch, JAX and the like) or an inference runtime (mlx-lm, vLLM, '
+              'NxD Inference and the like), and needs no files other than the model directory. It computes the '
+              'model on the machine\'s accelerator (the GPU, the NeuronCores); the host CPU loads weights and schedules '
+              'work, it does not compute the model. You may '
               'read and adapt the source of any open-source project (respect its license).') if task.native else ''
     forward = ('\n- Decode computes one forward pass of the checkpoint per generated token: no draft models, and no '
                'drafted, speculated or looked-up tokens verified in batches.') if task.one_forward_per_token else ''

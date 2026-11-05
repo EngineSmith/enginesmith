@@ -20,7 +20,8 @@ _NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z')
 _DURATION = re.compile(r'\s*(\d+(?:\.\d+)?)\s*(s|m|h)\s*\Z')
 # What a credential in a command line usually looks like. The task is copied into the run directory and every
 # session's brief, so credentials belong in the environment or the agent's own configuration.
-_SECRET = re.compile(r'(?i)(api[_-]?key|token|secret|password)[A-Z_]*=|\b(sk|ghp|gho|xox[bp])-?[A-Za-z0-9_-]{16,}')
+# Key prefixes need their separator: '--skip-git-repo-check' is not an 'sk-' key.
+_SECRET = re.compile(r'(?i)(api[_-]?key|token|secret|password)[A-Z_]*=|\b(sk-|ghp_|gho_|xox[bp]-)[A-Za-z0-9_-]{16,}')
 
 
 class TaskError(ValueError):
@@ -109,9 +110,16 @@ class Task:
     model_source: str | None = None  # the Hugging Face repository the model was downloaded from (for sharing)
     reference_kind: str | None = None  # enginesmith.references.KINDS; None: the platform's default
     one_forward_per_token: bool | None = True  # the brief's decode rule; None: a run from before the rule
+    reference_tp: int = 1  # tensor-parallel degree of the reference (and the accelerator cores an engine gets)
 
     def cases(self) -> list[workload.Case]:
         return workload.cases(self.lengths, self.output_tokens, self.objective.length_weights, self.controls)
+
+    def max_request_length(self) -> int:
+        """The most positions one request can need: the longest prompt and its generated tokens, or a task-accuracy
+        prompt (chat-templated, a few thousand tokens at most) and its output."""
+        longest = max(c.length for c in self.cases()) + self.output_tokens
+        return max(longest, self.quality.max_tokens + 4096) if self.quality else longest
 
     def to_json(self) -> dict:
         def plain(value):
@@ -143,7 +151,7 @@ class Task:
                    Budget(**data['budget']),
                    Quality(**{**data['quality'], 'benchmarks': tuple(data['quality']['benchmarks'])})
                    if data.get('quality') else None, data.get('model_source'), data.get('reference_kind'),
-                   data.get('one_forward_per_token'))
+                   data.get('one_forward_per_token'), data.get('reference_tp', 1))
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.to_json(), sort_keys=True).encode()).hexdigest()
@@ -252,7 +260,7 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
     if source is not None and (type(source) is not str or not re.fullmatch(r'[\w.-]+/[\w.-]+', source)):
         raise TaskError('model.source must be a Hugging Face repository id such as "mlx-community/Qwen3-0.6B-4bit"')
 
-    r = _table(data, 'reference', {'command', 'kind'})
+    r = _table(data, 'reference', {'command', 'kind', 'tensor_parallel'})
     reference = _argv(r['command'], 'reference.command') if 'command' in r else None
     from enginesmith.references import KINDS
     reference_kind = r.get('kind')
@@ -260,6 +268,9 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
         raise TaskError(f'reference.kind must be one of {", ".join(KINDS)}')
     if reference_kind and reference:
         raise TaskError('give reference.kind or reference.command, not both')
+    reference_tp = _number(r, 'tensor_parallel', 1, 1, 64, 'reference.tensor_parallel', integer=True)
+    if reference_tp > 1 and (reference or not KINDS.get(reference_kind or '', {}).get('tensor_parallel')):
+        raise TaskError('reference.tensor_parallel needs a reference.kind that supports it (nxdi)')
 
     e = _table(data, 'engine', {'seed', 'evaluate_seed', 'build', 'executable', 'native', 'one_forward_per_token',
                                 'skill'})
@@ -372,7 +383,7 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
             raise TaskError(f'engine.skill: {skill} has no SKILL.md')
     return Task(path, name, model, card, vocab, reference, seed, evaluate_seed, build, executable, native, skill,
                 agent, agent_model, agent_command, tuple(sorted(lengths)), output_tokens, controls, objective,
-                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward)
+                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward, reference_tp)
 
 
 def _quality(data: dict) -> Quality:

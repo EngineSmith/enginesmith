@@ -1,6 +1,6 @@
 ---
 name: specialized-inference-engine
-description: Build and optimize a specialized native inference engine for one fixed model checkpoint, matched token for token against a reference implementation and faster than it. Covers onboarding a model (model card, bytes and FLOPs per token, speed floor), bringing up a correct baseline, bitwise-safe optimization, interleaved timing, profiling, kernel fusion and packaging. Backend modules hold the platform techniques: Metal + Rust for Apple Silicon (M5 family), and HIP + Rust for AMD Instinct MI325X (gfx942). Use for any session that writes, verifies or speeds up engine code.
+description: Build and optimize a specialized native inference engine for one fixed model checkpoint, matched token for token against a reference implementation and faster than it. Covers onboarding a model (model card, bytes and FLOPs per token, speed floor), bringing up a correct baseline, bitwise-safe optimization, interleaved timing, profiling, kernel fusion and packaging. Backend modules hold the platform techniques: Metal + Rust for Apple Silicon (M5 family), HIP + Rust for AMD Instinct MI325X (gfx942), and NKI + C++ for AWS Trainium2. Use for any session that writes, verifies or speeds up engine code.
 ---
 
 # Specialized inference engine
@@ -77,6 +77,7 @@ platform's hard rules.
 |---|---|---|
 | `backends/metal-rust/` | written, measured on an Apple M5 Max | Apple Silicon, Metal Shading Language kernels, Rust host code |
 | `backends/hip-rust/` | written; platform micro-benchmarks and the SGLang reference measured on one AMD Instinct MI325X, no worked engine yet | AMD Instinct MI325X (gfx942, CDNA3), HIP C++ kernels, Rust host code, judged against SGLang on ROCm |
+| `backends/nki-cpp/` | toolchain, runtime, decode loop and profiling written, measured on a trn2.48xlarge | AWS Trainium2, NKI kernels compiled to NEFF at build time, C++ host code on libnrt |
 | others (e.g. CUDA) | not written | see `backends/README.md` for how to add one |
 
 ## Files
@@ -90,5 +91,7 @@ platform's hard rules.
 | `references/optimization-method.md` | choosing the next optimization; writing up a result |
 | `backends/metal-rust/README.md` | any Metal + Rust work (index of the backend files) |
 | `backends/hip-rust/README.md` | any HIP + Rust work on an AMD Instinct GPU (index of the backend files) |
+| `backends/nki-cpp/README.md` | any Trainium work (index of the backend files) |
 | `examples/lfm2.5/` | a complete worked example: model card, decode dispatch map and the optimization log of an engine that reached 1.53x the reference's decode speed in a paired evaluation (300+ tokens/s on an M5 Max) |
+| `examples/qwen3-0.6b-trn2/` | a worked Trainium2 example: Qwen3-0.6B at 2.21x NxD Inference (held-out), how a kernel lab plus harness sessions built it, and the optimization log |
 | `scripts/README.md` | the A/B, timing and lock tools, and when the task contract lets you use them |

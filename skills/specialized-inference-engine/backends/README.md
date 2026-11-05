@@ -80,4 +80,5 @@ does not apply, say so in its `README.md`.
 |---|---|---|---|
 | `metal-rust` | written: README and nine topic files | Apple M5 Max (40-core GPU, 128 GB) | one worked model (LFM2.5-24B-A2B, MLX 4-bit); numbers outside that engine and machine are not measured |
 | `hip-rust` | written: README and nine topic files | AMD Instinct MI325X (gfx942), ROCm 7.14 | platform micro-benchmarks (HBM bandwidth, launch, sync, hipGraph replay) and the SGLang 0.5.22 reference on Qwen3-0.6B are measured; no worked engine yet, so kernel-level guidance is hypotheses to measure |
+| `nki-cpp` | written: README, runtime, decode loop, profiling, counterexamples and a working example | trn2.48xlarge (Trainium2, logical NeuronCore config 2) | kernels (fusion, GEMV, attention, prefill), tensor parallel and a worked Qwen3-0.6B example at 2.28x NxD Inference |
 | others (CUDA, ...) | not written | - | follow "Adding a backend" |

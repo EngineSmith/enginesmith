@@ -24,6 +24,12 @@ KINDS = {
     'mlx-lm': {'module': 'enginesmith.references.mlx_lm', 'package': 'mlx-lm', 'install': 'run `uv sync --extra mlx`.'},
     'sglang': {'module': 'enginesmith.references.sglang', 'package': 'sglang', 'image_env': 'ENGINESMITH_SGLANG_IMAGE',
                'install': 'set ENGINESMITH_SGLANG_IMAGE to an SGLang ROCm image (Apptainer .sif), or install sglang.'},
+    # Compiles for a fixed length, so it is told the longest request of the task.
+    'nxdi': {'module': 'enginesmith.references.nxdi', 'package': 'neuronx-distributed-inference',
+             'max_length': True, 'tensor_parallel': True,
+             'install': 'run `uv pip install --index-strategy unsafe-best-match --extra-index-url '
+                        'https://pip.repos.neuron.amazonaws.com "neuronx-distributed-inference==0.10.18399+ed62453e" '
+                        '"neuronx-cc==2.27.5334.0+f702b353" "islpy==2026.1" "numpy==2.3.5"`.'},
 }
 
 
@@ -42,8 +48,14 @@ def _in_image(image: str, argv: list[str]) -> list[str]:
             '--env', f'HOME={home}', '--env', 'TMPDIR=/tmp', image, 'python3', *argv]
 
 
-def command(kind: str, model: Path) -> list[str]:
+def command(kind: str, model: Path, max_length: int | None = None, tensor_parallel: int = 1) -> list[str]:
+    """The reference's argv; max_length (the longest prompt plus its generated tokens) is passed to the kinds
+    that compile for a fixed length, a tensor-parallel degree above 1 to the kinds that support one."""
     argv = ['-m', KINDS[kind]['module'], '--model', str(Path(model).resolve())]
+    if KINDS[kind].get('max_length') and max_length:
+        argv += ['--max-length', str(max_length)]
+    if tensor_parallel > 1:
+        argv += ['--tp', str(tensor_parallel)]
     image = _image(kind)
     return _in_image(image, argv) if image else [sys.executable, *argv]
 
