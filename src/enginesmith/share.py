@@ -8,7 +8,7 @@ downloads the same model files, which verify checks by SHA-256), and no host pat
 a build embeds paths of the machine it was built on, such as the home directory.
 
 verify builds the engine from the package's source (it runs the shared binary only when asked) and evaluates it
-against the local reference (the run's, e.g. mlx-lm or SGLang) with the formal evaluation's procedure, on fresh prompts, on this machine.
+against the local reference (the run's, e.g. mlx-lm, SGLang or NxD Inference) with the formal evaluation's procedure, on fresh prompts, on this machine.
 """
 from __future__ import annotations
 
