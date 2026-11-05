@@ -44,7 +44,8 @@ def stop(process: subprocess.Popen, grace: float = 10.0) -> dict:
 
 
 class Registry:
-    """A directory of process-group ids (one empty file per group)."""
+    """A directory of process-group ids (one empty file per group, named by the id). Only those files are read or
+    removed: anything else in the directory is left alone."""
 
     def __init__(self, directory: Path | str | None):
         self.directory = Path(directory) if directory else None
@@ -64,7 +65,9 @@ class Registry:
         killed = []
         if self.directory and self.directory.is_dir():
             for entry in self.directory.iterdir():
-                if entry.name.isdigit() and kill_group(int(entry.name)):
+                if not entry.name.isdigit() or not entry.is_file():
+                    continue
+                if kill_group(int(entry.name)):
                     killed.append(int(entry.name))
                 entry.unlink(missing_ok=True)
         return killed
