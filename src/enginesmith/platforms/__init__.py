@@ -13,6 +13,11 @@ A platform is a module in this package that defines:
     keep_awake() -> subprocess.Popen | None    keep the machine awake while this process lives
     native_problem(path) -> str | None         why a file is not a self-contained native executable, or None
 
+and may define:
+
+    engine_environment() -> dict               variables every engine and reference process gets (for example the
+                                               accelerator cores it may use); absent: none
+
 PLATFORMS lists them in order of preference; the first one whose supported() is true is used, and `generic` (which
 supports everything and provides nothing platform-specific) comes last. CONTRIBUTING.md says how to add one.
 """
@@ -21,7 +26,8 @@ from __future__ import annotations
 import functools
 import importlib
 
-PLATFORMS = ('enginesmith.platforms.macos', 'enginesmith.platforms.linux_rocm', 'enginesmith.platforms.generic')
+PLATFORMS = ('enginesmith.platforms.macos', 'enginesmith.platforms.linux_rocm', 'enginesmith.platforms.neuron',
+             'enginesmith.platforms.generic')
 
 
 @functools.cache

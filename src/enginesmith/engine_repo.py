@@ -2,7 +2,7 @@
 
 The run keeps every engine version in a bare git repository (run/engine.git). A session works in a worktree
 checked out at its starting commit; when the session ends, everything in the worktree (except what .gitignore
-excludes) is committed, and that commit is the candidate's snapshot. Builds run in one persistent build worktree
+excludes, and never target/) is committed, and that commit is the candidate's snapshot. Builds run in one persistent build worktree
 (run/build) that is reset to the snapshot and cleaned (except target/, so dependencies stay compiled) before every
 build, so a build only ever sees committed source.
 """
@@ -44,8 +44,10 @@ def init(repository: Path, seed: Path | None) -> str:
     if seed is not None:
         shutil.copytree(seed, staging, dirs_exist_ok=True, symlinks=True,
                         ignore=shutil.ignore_patterns('.git', 'target'))
-    if not (staging / '.gitignore').exists():
-        (staging / '.gitignore').write_text(IGNORED)
+    ignore = staging / '.gitignore'
+    existing = ignore.read_text() if ignore.exists() else ''
+    if 'target/' not in existing.split():
+        ignore.write_text(existing + ('' if not existing or existing.endswith('\n') else '\n') + IGNORED)
     git('init', '-q', cwd=staging)
     git('add', '-A', cwd=staging)
     git('commit', '-q', '--allow-empty', '-m', 'seed' if seed else 'empty engine project', cwd=staging)
@@ -67,6 +69,9 @@ def snapshot(repository: Path, worktree: Path, label: str) -> tuple[str, list[st
     if not (worktree / '.git').exists():
         raise SnapshotError('the engine directory is no longer a git checkout')
     git('add', '-A', cwd=worktree)
+    # Build output is never part of a snapshot: the harness builds every candidate from its source, so prebuilt
+    # artifacts committed under target/ (for example compiled kernels) must not reach the build.
+    git('rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', 'target', cwd=worktree)
     staged = git('diff', '--cached', '--name-only', '--diff-filter=AM', '-z', cwd=worktree).split('\0')
     large = [name for name in staged if name and (worktree / name).is_file()
              and (worktree / name).stat().st_size > MAX_FILE_BYTES]
@@ -108,6 +113,18 @@ def code_stats(repository: Path, base: str, commit: str) -> dict:
     return {'lines': _lines(repository, EMPTY_TREE, commit)[0], 'added': added, 'removed': removed}
 
 
+BUSY_DEVICE = (b'Failed to initialize NRT runtime', b'cores busy', b'Logical Neuron Core(s) not available')
+
+
+def _busy_device(log: Path) -> bool:
+    """Whether the build log's tail shows that the accelerator was held by another process."""
+    try:
+        data = log.read_bytes()[-200_000:]
+    except OSError:
+        return False
+    return any(marker in data for marker in BUSY_DEVICE)
+
+
 def _run_logged(argv, cwd: Path, log: Path, timeout: float, env: dict) -> dict:
     started = time.monotonic()
     with open(log, 'ab') as out:
@@ -136,6 +153,13 @@ def build(repository: Path, build_dir: Path, commit: str, argv, executable: str,
     git('clean', '-q', '-ffdx', '-e', 'target/', cwd=build_dir)
     env = {**os.environ, 'CARGO_TERM_COLOR': 'never'}
     result = _run_logged(list(argv), build_dir, log, timeout, env)
+    if result['exit_code'] not in (0, None) and not result['timed_out'] and _busy_device(log):
+        # The machine's accelerator was briefly held by another process (a build that runs kernels to compile
+        # them): an infrastructure failure, not the candidate's. Try once more.
+        with open(log, 'ab') as out:
+            out.write(b'\n[enginesmith: the build failed on a busy accelerator; retrying once in 60 s]\n')
+        time.sleep(60)
+        result = _run_logged(list(argv), build_dir, log, timeout, env)
     result['passed'] = False
     if log.stat().st_size > LOG_LIMIT:
         data = log.read_bytes()

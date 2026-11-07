@@ -28,9 +28,12 @@ class EngineFailure(Exception):
 
 
 def engine_environment(scratch: Path, extra: dict | None = None) -> dict:
-    """A small, explicit environment: no inherited variables apart from those given."""
+    """A small, explicit environment: no inherited variables apart from those given and the platform's own (for
+    example the accelerator cores an engine may use)."""
+    from enginesmith.platforms import current
     env = {'PATH': CLEAN_PATH, 'HOME': str(scratch), 'TMPDIR': str(scratch), 'LANG': 'C.UTF-8',
            'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1'}
+    env.update(getattr(current(), 'engine_environment', dict)())
     env.update(extra or {})
     return env
 

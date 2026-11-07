@@ -8,7 +8,7 @@ downloads the same model files, which verify checks by SHA-256), and no host pat
 a build embeds paths of the machine it was built on, such as the home directory.
 
 verify builds the engine from the package's source (it runs the shared binary only when asked) and evaluates it
-against the local reference (the run's, e.g. mlx-lm or SGLang) with the formal evaluation's procedure, on fresh prompts, on this machine.
+against the local reference (the run's, e.g. mlx-lm, SGLang or NxD Inference) with the formal evaluation's procedure, on fresh prompts, on this machine.
 """
 from __future__ import annotations
 
@@ -157,6 +157,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                      for c in results['cases'])
     source = f'[{m["source"]}](https://huggingface.co/{m["source"]})' if m['source'] else m['name']
     revision = f' at revision `{m["revision"]}`' if m['revision'] else ''
+    ref = info['harness']['reference'] or 'the reference'
     lines = [f'# {info["name"]}', '',
              f'A specialized inference engine for {source}{revision}, built with EngineSmith {info["harness"]["version"]}.',
              '', f'- Machine: {mc["accelerator"] or mc["chip"]}'

@@ -68,3 +68,9 @@ def write_task(directory: Path, model: Path, **sections) -> Path:
     path = directory / 'task.toml'
     path.write_text('\n'.join(lines))
     return path
+
+
+@pytest.fixture(autouse=True)
+def private_gpu_lock(tmp_path, monkeypatch):
+    """Tests never wait for the GPU lock of real runs on the same machine."""
+    monkeypatch.setenv("GPU_LOCK_FILE", str(tmp_path / "gpu.lock"))

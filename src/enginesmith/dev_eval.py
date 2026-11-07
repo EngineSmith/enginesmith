@@ -23,8 +23,10 @@ LOCK = '/tmp/engine-gpu.lock'
 
 
 @contextmanager
-def gpu_lock(path: str = LOCK):
-    """The GPU lock the skill's scripts share; skipped under gpu_lock.py, which already holds it."""
+def gpu_lock(path: str | None = None):
+    """The GPU lock the skill's scripts share (, else LOCK: runs that share a machine on separate
+    accelerator cores give each its own); skipped under gpu_lock.py, which already holds it."""
+    path = path or os.environ.get('GPU_LOCK_FILE') or LOCK
     if os.environ.get('GPU_LOCK_HELD'):
         yield
         return
