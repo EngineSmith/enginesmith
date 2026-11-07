@@ -34,7 +34,7 @@ def reference_argv(task: Task) -> list[str]:
     kind = reference_kind(task)
     if kind is None:
         raise ValueError(f'the {current().NAME} platform has no default reference; set [reference] kind or command')
-    return references.command(kind, task.model)
+    return references.command(kind, task.model, task.max_request_length(), task.reference_tp)
 
 
 def _percent(value: float) -> str:

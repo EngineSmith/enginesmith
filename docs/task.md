@@ -11,7 +11,7 @@ copies the resolved task into `RUN/task.json` when it starts; nothing changes it
 | `card` | none | the model card every session reads (`brief/model-card.md`) |
 | `source` | none | the Hugging Face repository the model came from, e.g. `mlx-community/Qwen3-0.6B-4bit`; `enginesmith share` records it |
 | **[reference]** | | |
-| `kind` | the platform's default (`mlx-lm` on Apple Silicon) | a reference of `src/enginesmith/references` |
+| `kind` | the platform's default (`mlx-lm` on Apple Silicon, `nxdi` on AWS Trainium) | a reference of `src/enginesmith/references` |
 | `command` | none | argv of another reference engine instead of `kind`; it must also answer `judge` (docs/protocol.md) |
 | **[engine]** | | |
 | `seed` | none | a directory with engine source to start from (copied without `.git` and `target/`) |
