@@ -51,14 +51,13 @@ Topics of the `metal-rust` set not written yet for this backend (no measurement 
 5. **Weights are read from the checkpoint as downloaded, values unchanged.** Re-laying them out at load time (for
    example pre-swizzling a weight so each partition reads contiguous bytes, `example/`) is allowed and was the
    largest GEMV win measured; changing a value (requantizing, casting to another type) is not.
-6. **One logical NeuronCore unless the task gives you more: the first one you are given** (tensor parallelism over
-   several: `tensor-parallel.md`). The reference runs at tensor parallel degree 1 on one
-   logical NeuronCore (two physical cores with logical NeuronCore config 2), and so should the engine unless the task
-   says otherwise. The harness starts the engine and the reference with `NEURON_RT_VISIBLE_CORES` set to the run's
-   two logical cores (`ENGINESMITH_NEURON_CORE` and the next one; 0 and 1 by default); the engine uses the first
-   visible core, the reference both (the second for judging). Without the variable the Neuron runtime claims every
-   core it can see. Experiments outside `enginesmith dev-eval` use the two cores after the run's
-   (`ENGINESMITH_NEURON_CORE` + 2 and + 3, set in your session's environment), so they never collide with an
+6. **The engine gets exactly the cores the reference generates on.** With a reference of tensor-parallel degree N
+   (1 unless the task sets `[reference] tensor_parallel`; more cores: `tensor-parallel.md`), the harness starts the
+   engine with `NEURON_RT_VISIBLE_CORES` set to N logical NeuronCores (two physical cores each with logical NeuronCore
+   config 2), starting at `ENGINESMITH_NEURON_CORE`; the reference sees those N and the next N, where it judges. Use
+   every core you see; there are no others. Without the variable the Neuron runtime claims every core it can see.
+   Experiments outside `enginesmith dev-eval` and kernel builds use the N cores after the run's 2N
+   (`ENGINESMITH_NEURON_CORE` + 2N onward, set in your session's environment), so they never collide with an
    evaluation or with another run on the machine.
 7. **Other runs share this machine.** Several EngineSmith runs (other agents) use other NeuronCores of the same
    host at the same time. Never wait for, signal or count processes by a machine-wide pattern (`pgrep -f "enginesmith

@@ -98,13 +98,15 @@ def explain(task: Task) -> str:
             '(docs/libraries.md); the build is refused otherwise.' if task.native and allowed else
             f'- Libraries: not checked ({"[engine] native = false" if not task.native else "this platform has no list"}).']
     kind = reference_kind(task)
+    cores = lambda n: ('one logical NeuronCore' if n == 1 else
+                       f'{n} logical NeuronCores (tensor-parallel degree {n}); the engine gets the same {n} cores')
     described = {'mlx-lm': 'stock mlx-lm, reproducing `generate_step` token for token: prefill in chunks of '
                            'min(2048, remaining - 1) tokens, the last prompt token alone, greedy decoding pipelined '
                            'one step ahead',
                  'sglang': 'stock SGLang (sglang.Engine with its platform defaults), its radix cache flushed on every '
                            'reset, a continuation sent as the whole history',
-                 'nxdi': 'stock NxD Inference on one logical NeuronCore (bf16, fused QKV, async mode, on-device '
-                         'greedy sampling), driven the way its HuggingFaceGenerationAdapter generates: the whole prompt '
+                 'nxdi': f'stock NxD Inference on {cores(task.reference_tp)} (bf16, fused QKV, async mode, '
+                         'on-device greedy sampling), driven the way its HuggingFaceGenerationAdapter generates: the whole prompt '
                          'in one context-encoding call padded to its bucket, then one token-generation call per token'}
     out += [f'- Reference: {described.get(kind, kind)} (`-m {references.KINDS[kind]["module"]}`, '
             f'version {references.version(kind)}).' if kind else

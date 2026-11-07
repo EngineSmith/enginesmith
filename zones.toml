@@ -77,9 +77,11 @@ processor that measures each row before forcing the token. The rules for Apple S
 [[versions]]
 version = 3
 date = "2026-11-05"
-fingerprint = "c8f8c145afed76d60352d5599d7b438c471996f07b532f0db81462b6afc838b9"
+fingerprint = "0e8c51e461177e48a0d586a77e316299077d2c208ba108098d061dc7ef759be8"
 changes = """Adds the reference on AWS Trainium: stock NxD Inference (neuronx-distributed-inference) driven the way its \
 HuggingFaceGenerationAdapter generates (the whole prompt in one context-encoding call padded to its bucket, then one \
 token-generation call per token; bf16, fused QKV, async mode, on-device greedy sampling), on one logical NeuronCore \
 or tensor parallel across several ([reference] tensor_parallel); judge teacher-forces in a worker process on a second \
-compilation that returns logits. The rules for Apple Silicon and AMD are unchanged."""
+compilation that returns logits. On Trainium the engine sees exactly the NeuronCores the reference generates on (its \
+tensor-parallel degree N); the reference sees those and the next N, where it judges. The rules for Apple Silicon and \
+AMD are unchanged."""

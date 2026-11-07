@@ -17,8 +17,14 @@ A platform is a module in this package that defines:
 
 and may define:
 
-    engine_environment() -> dict               variables every engine and reference process gets (for example the
-                                               accelerator cores it may use); absent: none
+    engine_environment(engine_cores=None) -> dict
+                                               variables every engine and reference process gets (for example the
+                                               accelerator cores it may use: engine_cores, the reference's
+                                               tensor-parallel degree, for an engine; none for a reference); absent:
+                                               none
+    busy_accelerator(log_tail: bytes) -> bool  whether a failed build's log shows the accelerator held by another
+                                               process, an infrastructure failure the build is retried once for;
+                                               absent: never
 
 PLATFORMS lists them in order of preference; the first one whose supported() is true is used, and `generic` (which
 supports everything and provides nothing platform-specific) comes last. CONTRIBUTING.md says how to add one.

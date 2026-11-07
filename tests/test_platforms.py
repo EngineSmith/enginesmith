@@ -123,17 +123,17 @@ def test_the_neuron_native_check_refuses_scripts_and_frameworks(tmp_path, monkey
     assert 'not an ELF' in neuron.native_problem(script)
     binary = tmp_path / 'engine'
     binary.write_bytes(b'\x7fELF' + bytes(60))
-    allowed = ('\tlinux-vdso.so.1 (0x0)\n\tlibnrt.so.1 => /opt/aws/neuron/lib/libnrt.so.1 (0x0)\n'
-               '\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x0)\n')
-    monkeypatch.setattr(neuron, '_run', lambda argv, timeout=20: allowed)
+    rocm = importlib.import_module('enginesmith.platforms.linux_rocm')
+    allowed = ['libnrt.so.1', 'libstdc++.so.6', 'libm.so.6', 'libgcc_s.so.1', 'libc.so.6']  # a real engine's
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed)
     assert neuron.native_problem(binary) is None
-    monkeypatch.setattr(neuron, '_run', lambda argv, timeout=20:
-                        allowed + '\tlibpython3.12.so.1.0 => /usr/lib/libpython3.12.so.1.0 (0x0)\n')
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed + ['libpython3.12.so.1.0'])
     assert 'libpython3.12' in neuron.native_problem(binary)
-    monkeypatch.setattr(neuron, '_run', lambda argv, timeout=20: allowed + '\tlibtorch_cpu.so => /x (0x0)\n')
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed + ['libtorch_cpu.so'])
     assert 'libtorch_cpu' in neuron.native_problem(binary)
-    cpu_only = '\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x0)\n'
-    monkeypatch.setattr(neuron, '_run', lambda argv, timeout=20: cpu_only)
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed + ['libopenblas.so.0'])
+    assert 'not a system library' in neuron.native_problem(binary)  # an allow-list: unknown names are refused
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: ['libstdc++.so.6', 'libc.so.6'])
     assert 'NeuronCores' in neuron.native_problem(binary)
 
 
@@ -153,10 +153,12 @@ def test_the_neuron_platform_gives_engines_the_run_cores(monkeypatch, tmp_path):
     monkeypatch.delenv('ENGINESMITH_NEURON_CORE', raising=False)
     assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '0-1'}
     monkeypatch.setenv('ENGINESMITH_NEURON_CORE', '8')
-    assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '8-9'}
+    assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '8-9'}  # the reference: generate and judge
+    assert neuron.engine_environment(1) == {'NEURON_RT_VISIBLE_CORES': '8'}  # the engine: the cores it generates on
     monkeypatch.setattr(platforms, 'current', lambda: neuron)
     from enginesmith import protocol
     assert protocol.engine_environment(tmp_path)['NEURON_RT_VISIBLE_CORES'] == '8-9'
+    assert protocol.engine_environment(tmp_path, engine_cores=1)['NEURON_RT_VISIBLE_CORES'] == '8'
     monkeypatch.setenv('ENGINESMITH_NEURON_CORE', 'x')
     with pytest.raises(ValueError):
         neuron.engine_environment()
@@ -176,5 +178,8 @@ def test_a_tensor_parallel_reference_gets_its_degree_and_the_run_its_cores(tmp_p
     monkeypatch.setenv('ENGINESMITH_NEURON_CORE', '16')
     monkeypatch.setenv('ENGINESMITH_NEURON_CORES', '8')
     assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '16-23'}
+    assert neuron.engine_environment(4) == {'NEURON_RT_VISIBLE_CORES': '16-19'}  # the engine: exactly the N cores
+    with pytest.raises(ValueError, match='twice'):
+        neuron.engine_environment(16)
     monkeypatch.setenv('ENGINESMITH_NEURON_CORES', '1')
     assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '16'}

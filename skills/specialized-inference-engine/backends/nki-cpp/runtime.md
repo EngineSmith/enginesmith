@@ -15,7 +15,7 @@ NEFF, the executable format of a NeuronCore.
   framework-free mode: it compiles the kernel, runs it once on a NeuronCore and leaves `kernel.neff` in that
   directory. `kernel[2](...)` compiles for logical NeuronCore config 2 (one program per physical core;
   `nl.program_id(0)` and `nl.num_programs()` split the work). The build therefore needs a free NeuronCore: give the
-  build process `NEURON_RT_VISIBLE_CORES` = your run's experiment core (`ENGINESMITH_NEURON_CORE` + 2), and one
+  build process `NEURON_RT_VISIBLE_CORES` = one of your run's experiment cores (`README.md`, hard rule 6), and one
   directory per kernel (run kernels in a pool of processes to build in parallel).
 - **Do not use nki's private entry points** (anything with a leading underscore or outside the documented API): they are not a public interface, and this project uses
   only AWS's public, documented material (`README.md`, "Allowed sources"). Engines that used them must switch to the
@@ -72,5 +72,5 @@ A position chosen at run time needs dynamic indexing in NKI; not tried yet (`REA
 ## Cores
 
 The runtime claims every NeuronCore it can see (`NEURON_RT_VISIBLE_CORES` limits that); a second process on the same
-cores fails with `Logical Neuron Core(s) not available ... (cores busy, ret=-16)`. During development pin your
-experiments to a core no evaluation uses, and never run two engines on one core.
+cores fails with `Logical Neuron Core(s) not available ... (cores busy, ret=-16)`. Which cores are yours: `README.md`,
+hard rule 6. Never run two engines on one core.

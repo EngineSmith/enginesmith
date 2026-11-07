@@ -119,12 +119,14 @@ def final_text(output: str) -> str:
 
 
 def run_arm(argv, chosen: list[dict], tokenizer: Tokenizer, settings, vocab: int, path: Path, deadline: float,
-            registry: Registry | None = None, stop=lambda: False, log=lambda message: None) -> list[dict]:
+            registry: Registry | None = None, stop=lambda: False, log=lambda message: None,
+            engine_cores: int | None = None) -> list[dict]:
     """Answer every item not yet in path (JSON lines); stops at the deadline or at an engine failure."""
     done = {json.loads(line)['id'] for line in path.read_text().splitlines()} if path.exists() else set()
     todo = [item for item in chosen if item['id'] not in done]
     if todo:
-        with Engine(argv, scratch=path.parent / f'scratch-{path.stem}', label=path.stem, registry=registry) as engine, \
+        with Engine(argv, scratch=path.parent / f'scratch-{path.stem}', label=path.stem, registry=registry,
+                    engine_cores=engine_cores) as engine, \
                 open(path, 'a') as out:
             try:
                 engine.hello(1800.0)
@@ -216,7 +218,8 @@ def _arm_summary(rows: list[dict], correct: dict, paired: list[str]) -> dict:
 
 
 def evaluate(settings, model: Path, vocab: int, engine_argv, reference_argv, directory: Path, *,
-             registry: Registry | None = None, stop=lambda: False, log=lambda message: None) -> dict:
+             registry: Registry | None = None, stop=lambda: False, log=lambda message: None,
+             engine_cores: int = 1) -> dict:
     """Run every benchmark of settings (the task's [quality]) through both arms; returns and writes the summary."""
     directory.mkdir(parents=True, exist_ok=True)
     fixed = {'samples': settings.samples, 'max_tokens': settings.max_tokens, 'decoding': 'greedy'}
@@ -233,7 +236,8 @@ def evaluate(settings, model: Path, vocab: int, engine_argv, reference_argv, dir
         rows = {}
         for arm, argv in (('reference', reference_argv), ('engine', engine_argv)):
             rows[arm] = run_arm(argv, chosen, tokenizer, settings, vocab, directory / f'{name}-{arm}.jsonl',
-                                time.time() + share, registry, stop, log)
+                                time.time() + share, registry, stop, log,
+                                engine_cores if arm == 'engine' else None)
         answered = {arm: {row['id'] for row in arm_rows if row.get('id')} for arm, arm_rows in rows.items()}
         paired = sorted(answered['reference'] & answered['engine'])
         outputs = {arm: {row['id']: row['output'] for row in arm_rows if row.get('id')} for arm, arm_rows in rows.items()}
@@ -252,17 +256,12 @@ def evaluate(settings, model: Path, vocab: int, engine_argv, reference_argv, dir
             mean = sum(diffs) / len(diffs)
             var = sum((d - mean) ** 2 for d in diffs) / max(len(diffs) - 1, 1)
             result.update(difference=mean, difference_standard_error=math.sqrt(var / len(diffs)))
-        speeds = [result[arm].get('tokens_per_s') for arm in ('engine', 'reference')]
-        # Generation speed on real prompts: the speed that counts for engines whose speed depends on the text
-        # (speculative decoding), since the timed workload's random-token prompts make small models loop.
-        result['speedup'] = speeds[0] / speeds[1] if all(speeds) else None
         for arm in ('reference', 'engine'):
             del result[arm]['_correct']
         summary[name] = result
         log(f'{name}: reference {_percent(result["reference"]["accuracy"])}, engine '
             f'{_percent(result["engine"]["accuracy"])} over {len(paired)} items answered by both '
-            f'({result["identical_outputs"]} with identical outputs)'
-            + (f'; generation {result["speedup"]:.2f}x the reference' if result['speedup'] else ''))
+            f'({result["identical_outputs"]} with identical outputs)')
     (directory / 'summary.json').write_text(json.dumps(summary, indent=2))
     return summary
 

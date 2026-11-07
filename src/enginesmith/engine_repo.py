@@ -113,16 +113,18 @@ def code_stats(repository: Path, base: str, commit: str) -> dict:
     return {'lines': _lines(repository, EMPTY_TREE, commit)[0], 'added': added, 'removed': removed}
 
 
-BUSY_DEVICE = (b'Failed to initialize NRT runtime', b'cores busy', b'Logical Neuron Core(s) not available')
-
-
 def _busy_device(log: Path) -> bool:
-    """Whether the build log's tail shows that the accelerator was held by another process."""
+    """Whether the build log's tail shows that the accelerator was held by another process (the platform's
+    busy_accelerator; platforms without one never retry)."""
+    from enginesmith.platforms import current
+    busy = getattr(current(), 'busy_accelerator', None)
+    if busy is None:
+        return False
     try:
         data = log.read_bytes()[-200_000:]
     except OSError:
         return False
-    return any(marker in data for marker in BUSY_DEVICE)
+    return busy(data)
 
 
 def _run_logged(argv, cwd: Path, log: Path, timeout: float, env: dict) -> dict:

@@ -1,3 +1,4 @@
+import importlib
 import json
 import shutil
 import sys
@@ -198,6 +199,9 @@ def test_build_output_never_reaches_a_snapshot(tmp_path):
 
 
 def test_a_build_on_a_busy_accelerator_is_retried_once(tmp_path, monkeypatch):
+    """On a platform that recognizes a busy accelerator (Trainium); other platforms never retry."""
+    from enginesmith import platforms
+    monkeypatch.setattr(platforms, 'current', lambda: importlib.import_module('enginesmith.platforms.neuron'))
     monkeypatch.setattr(engine_repo.time, 'sleep', lambda s: None)
     seed = tmp_path / 'seed'
     seed.mkdir()

@@ -101,10 +101,13 @@ the task file.
   or 8 logical cores, for example 2 for Qwen3-14B and 4 for Qwen3-30B-A3B), and the engine gets as many cores.
 - **The task** sets the C++ build: `[engine] build = ["bash", "build.sh"]` and `executable = "target/engine"`; the
   sessions use `skills/specialized-inference-engine/backends/nki-cpp/README.md`. `[reference] kind` defaults to `nxdi`.
-- **Cores.** A run uses two logical NeuronCores, `ENGINESMITH_NEURON_CORE` and the next one (0 and 1 by default), or
-  twice the tensor-parallel degree (`ENGINESMITH_NEURON_CORES`); its sessions also use the next ones for experiments
-  and builds. Several runs can share a trn2.48xlarge with different
-  values (0, 4, 8, ...) and their own `GPU_LOCK_FILE`.
+- **Cores.** With a reference of tensor-parallel degree N (1 unless `[reference] tensor_parallel`), a run uses 2N
+  logical NeuronCores from `ENGINESMITH_NEURON_CORE` (default 0; set `ENGINESMITH_NEURON_CORES` to 2N, default 2):
+  the reference generates on the first N and judges on the next N, and the engine sees only the first N, so it gets
+  the same hardware as the reference. The sessions use the N cores after those for experiments and builds, so give
+  each run 3N cores: several runs share a trn2.48xlarge with different `ENGINESMITH_NEURON_CORE` values (0, 4, 8,
+  ... for N = 1) and their own `GPU_LOCK_FILE`. This is the only place these numbers are described for users; the
+  sessions read them in the backend's README (hard rule 6).
 - **First use is slow.** `enginesmith prepare` compiles the reference for the task's longest request (5 minutes
   for Qwen3-0.6B, about 20 for Qwen3-8B) and caches it under `~/.cache/enginesmith/nxdi`.
 - **A reference quirk the engines must reproduce:** for a one-token prompt NxD Inference pads the prompt with token

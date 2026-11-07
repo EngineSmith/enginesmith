@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -12,10 +13,14 @@ NAME = 'linux-neuron'
 DEFAULT_REFERENCE = 'nxdi'
 NEURON_BIN = Path('/opt/aws/neuron/bin')
 ELF = b'\x7fELF'
-# Libraries an engine may link: the C/C++ runtime, the Neuron driver interface and runtime (libnrt and the
-# collectives it loads). Anything that knows the model or does numerics for it (Python, PyTorch, XLA, JAX, vLLM,
-# NxD) is refused.
-REFUSED = ('python', 'torch', 'xla', 'jax', 'vllm', 'neuronx_distributed', 'tensorflow', 'onnx', 'ggml')
+# The libraries an engine may link (docs/libraries.md, "Trainium"): the C and C++ runtimes, the loader, and libnrt,
+# the Neuron runtime that loads the engine's own NEFF files onto the NeuronCores (its collectives library is loaded by
+# libnrt itself, not linked). Everything else is refused.
+ALLOWED = {'libc', 'libm', 'libdl', 'libpthread', 'librt', 'libutil', 'libgcc_s', 'libstdc++',
+           'ld-linux-x86-64', 'ld-linux-aarch64', 'linux-vdso', 'libnrt'}
+# Refused by name, for a clearer message (everything else outside ALLOWED is refused too).
+REFUSED = ('libpython', 'libtorch', 'libc10', 'libneuronxla', 'libxla', 'libjax', 'libvllm', 'libtensorflow',
+           'libonnxruntime', 'libggml', 'libllama')
 
 
 def _run(argv, timeout=20) -> str | None:
@@ -96,18 +101,32 @@ def memory_critical() -> bool:
     return bool(total and available is not None and available < total * 0.03)
 
 
-def engine_environment() -> dict:
-    """The NeuronCores of this run: ENGINESMITH_NEURON_CORES logical cores (default 2) from ENGINESMITH_NEURON_CORE
-    (default 0). With a reference of tensor-parallel degree N the run needs 2N: the engine uses the first N, the
-    reference the first N and, for judging, the next N. Runs started with different values can share the machine.
-    The Neuron runtime otherwise claims every core it can see."""
+def engine_environment(engine_cores: int | None = None) -> dict:
+    """The NeuronCores a process may use (the Neuron runtime otherwise claims every core it can see). The run has
+    ENGINESMITH_NEURON_CORES logical cores (default 2) from ENGINESMITH_NEURON_CORE (default 0): with a reference of
+    tensor-parallel degree N, 2N of them. The reference sees all of them (it generates on the first N and judges on
+    the next N); an engine (engine_cores = N) sees only the first N, the cores the reference generates on. Runs
+    started with different values can share the machine."""
     base, count = (os.environ.get(name, default) for name, default in
                    (('ENGINESMITH_NEURON_CORE', '0'), ('ENGINESMITH_NEURON_CORES', '2')))
     if not base.isdigit() or not count.isdigit() or int(count) < 1:
         raise ValueError(f'ENGINESMITH_NEURON_CORE and ENGINESMITH_NEURON_CORES must be numbers, not {base!r}, '
                          f'{count!r}')
-    first, last = int(base), int(base) + int(count) - 1
+    if engine_cores and engine_cores > int(count):
+        raise ValueError(f'the engine needs {engine_cores} NeuronCores but ENGINESMITH_NEURON_CORES is {count}; give '
+                         f'the run twice the reference\'s tensor-parallel degree')
+    first = int(base)
+    last = first + (engine_cores or int(count)) - 1
     return {'NEURON_RT_VISIBLE_CORES': f'{first}-{last}' if last > first else str(first)}
+
+
+BUSY = (b'Failed to initialize NRT runtime', b'cores busy', b'Logical Neuron Core(s) not available')
+
+
+def busy_accelerator(log_tail: bytes) -> bool:
+    """A build log that shows the NeuronCores held by another process: NKI builds run each kernel once to compile it,
+    so a build can meet a core another run briefly holds. The build is retried once."""
+    return any(marker in log_tail for marker in BUSY)
 
 
 def keep_awake() -> subprocess.Popen | None:
@@ -115,14 +134,25 @@ def keep_awake() -> subprocess.Popen | None:
 
 
 def native_problem(path: Path) -> str | None:
-    """None when path is an ELF executable that links libnrt and no Python, framework or inference runtime library."""
-    if Path(path).read_bytes()[:4] != ELF:
+    """None when path is an ELF executable whose direct dependencies (DT_NEEDED) are all in ALLOWED and include
+    libnrt, so the model runs on the NeuronCores."""
+    from enginesmith.platforms.linux_rocm import needed_libraries
+    data = Path(path).read_bytes()
+    if data[:4] != ELF:
         return 'not an ELF executable (scripts and wrappers are not allowed)'
-    libraries = _run(['ldd', str(path)], timeout=60) or ''
-    names = [line.strip().split(' ')[0] for line in libraries.splitlines()]
-    for name in names:
-        if any(word in name.lower() for word in REFUSED):
-            return f'links {name}'
-    if not any(name.startswith('libnrt.so') for name in names):
+    try:
+        libraries = needed_libraries(data)
+    except (struct.error, IndexError, ValueError, UnicodeDecodeError):
+        return 'not a readable ELF executable'
+    if libraries is None:
+        return 'not a 64-bit little-endian ELF executable'
+    stems = [os.path.basename(library).split('.so')[0] for library in libraries]
+    for library, stem in zip(libraries, stems):
+        if stem.startswith(REFUSED):
+            return (f'links {library}, a framework, compiler or inference runtime: the engine must own every '
+                    'computation on the model (docs/libraries.md)')
+        if stem not in ALLOWED:
+            return f'links {library}, which is not a system library or the Neuron runtime (docs/libraries.md)'
+    if 'libnrt' not in stems:
         return 'an executable that does not link libnrt (the model must run on the NeuronCores, not the host CPU)'
     return None
