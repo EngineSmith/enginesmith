@@ -11,6 +11,14 @@ from pathlib import Path
 NAME = 'macos-metal'
 DEFAULT_REFERENCE = 'mlx-lm'
 MACH_O = (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xfe\xed\xfa\xcf')
+# Libraries a native engine may link (docs/libraries.md): the system and C/C++ runtimes, and Metal with the
+# Objective-C layer it is called through. A framework is named by its framework, any other library by its file name
+# up to the first dot; both must be the system's own copy.
+ALLOWED = {'libSystem', 'libc++', 'libobjc', 'libiconv', 'Foundation', 'CoreFoundation', 'Metal'}
+SYSTEM = ('/usr/lib/', '/System/Library/')
+# Libraries refused by name, for a clearer message (everything else outside ALLOWED is refused too).
+REFUSED = ('libpython', 'Python', 'libmlx', 'mlx', 'MetalPerformanceShaders', 'Accelerate', 'CoreML', 'libtorch',
+           'libggml', 'libllama', 'libonnxruntime')
 
 
 def _run(argv, timeout=20) -> str | None:
@@ -88,13 +96,29 @@ def keep_awake() -> subprocess.Popen | None:
         return None
 
 
+def _library_name(library: str) -> str:
+    """The name ALLOWED and REFUSED use: a framework's name, or a library's file name up to the first dot."""
+    if '.framework/' in library:
+        return library.split('.framework/')[0].rsplit('/', 1)[-1]
+    return library.rsplit('/', 1)[-1].split('.')[0]
+
+
 def native_problem(path: Path) -> str | None:
-    """None when path is a Mach-O executable that links no Python or MLX library."""
+    """None when path is a Mach-O executable that links only system libraries in ALLOWED."""
     if Path(path).read_bytes()[:4] not in MACH_O:
         return 'not a Mach-O executable (scripts and wrappers are not allowed)'
-    libraries = _run(['otool', '-L', str(path)], timeout=60) or ''
-    for line in libraries.splitlines()[1:]:
-        name = line.strip().split(' ')[0]
-        if 'python' in name.lower() or 'mlx' in name.lower():
-            return f'links {name}'
+    listing = _run(['otool', '-L', str(path)], timeout=60)
+    if listing is None:
+        return 'otool cannot list the libraries it links'
+    for line in listing.splitlines():
+        if line.endswith(':'):  # the file itself, once per architecture of a universal binary
+            continue
+        library = line.strip().split(' (compatibility')[0]
+        name = _library_name(library)
+        if name.startswith(REFUSED):
+            return (f'links {library}, a framework, inference runtime or precompiled numerical library: the engine '
+                    'must own every computation on the model (copy the open-source kernels you need into its source '
+                    'instead)')
+        if name not in ALLOWED or not library.startswith(SYSTEM):
+            return f'links {library}, which is not an allowed system library (docs/libraries.md)'
     return None

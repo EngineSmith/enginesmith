@@ -11,6 +11,7 @@ from pathlib import Path
 
 NAME = 'generic'
 DEFAULT_REFERENCE = None  # a task must name its reference ([reference] kind or command)
+ALLOWED = None  # no list of the libraries an engine may link, and no check
 
 
 def supported() -> bool:

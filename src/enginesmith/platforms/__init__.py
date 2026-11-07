@@ -11,7 +11,9 @@ A platform is a module in this package that defines:
     memory_budget() -> int | None              bytes a model and its KV cache may use (unified memory or VRAM)
     memory_critical() -> bool                  memory is about to run out (the watchdog then kills engines)
     keep_awake() -> subprocess.Popen | None    keep the machine awake while this process lives
-    native_problem(path) -> str | None         why a file is not a self-contained native executable, or None
+    ALLOWED: set[str] | None                   the libraries a native engine may link (docs/libraries.md), or None
+    native_problem(path) -> str | None         why a file is not a self-contained native executable linking only
+                                               ALLOWED, or None
 
 and may define:
 
