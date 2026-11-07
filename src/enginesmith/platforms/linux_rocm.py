@@ -9,9 +9,10 @@ marketing name.
 
 A native engine owns every numerical computation on the model's tensors. It may link the C and C++ runtimes and the
 GPU's driver and runtime layer (the HIP runtime, HSA, the hiprtc compiler and what they need), but not precompiled
-numerical libraries (rocBLAS, hipBLASLt, MIOpen, Composable Kernel, aiter, RCCL, ...) or an inference runtime: their
+numerical libraries (rocBLAS, hipBLASLt, MIOpen, Composable Kernel, aiter, ...) or an inference runtime: their
 kernels were tuned for other shapes and the coding sessions cannot change them for this model. Their open-source
-kernels may be copied into the engine's source instead. native_problem refuses every library outside the allow-list.
+kernels may be copied into the engine's source instead. RCCL, the multi-GPU communication library, is allowed for now
+(docs/libraries.md, "Open questions"). native_problem refuses every library outside the allow-list.
 """
 from __future__ import annotations
 
@@ -32,10 +33,11 @@ BUSY_BYTES = 2 << 30  # VRAM in use above this before the engine starts: another
 ALLOWED = {'libc', 'libm', 'libdl', 'libpthread', 'librt', 'libutil', 'libresolv', 'libatomic', 'libgcc_s',
            'libstdc++', 'ld-linux-x86-64', 'ld-linux-aarch64', 'linux-vdso', 'libz',
            'libamdhip64', 'libhsa-runtime64', 'libhiprtc', 'libhiprtc-builtins', 'libamd_comgr', 'libdrm',
-           'libdrm_amdgpu', 'libnuma', 'libelf'}
+           'libdrm_amdgpu', 'libnuma', 'libelf',
+           'librccl'}  # multi-GPU communication: allowed for now (docs/libraries.md, "Open questions")
 # Libraries refused by name, for a clearer message (everything else outside ALLOWED is refused too).
 REFUSED = ('libpython', 'libtorch', 'libc10', 'librocblas', 'libhipblas', 'libMIOpen', 'librocprim', 'libhipcub',
-           'librccl', 'libmlx', 'libggml', 'libllama', 'libonnxruntime', 'libtriton', 'libvllm',
+           'libmlx', 'libggml', 'libllama', 'libonnxruntime', 'libtriton', 'libvllm',
            'libcomposable_kernel', 'libck', 'libaiter', 'librocsolver', 'libhipsolver', 'librocfft', 'libhipfft',
            'librocsparse', 'libhipsparse', 'libmigraphx', 'librocrand', 'libhiprand')
 
@@ -228,5 +230,5 @@ def native_problem(path: Path) -> str | None:
             return (f'links {library}, a precompiled numerical or inference library: the engine must own every '
                     'computation on the model (copy the open-source kernels you need into its source instead)')
         if stem not in ALLOWED:
-            return f'links {library}, which is not a system or HIP runtime library'
+            return f'links {library}, which is not a system or HIP runtime library (docs/libraries.md)'
     return None

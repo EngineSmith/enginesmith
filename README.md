@@ -38,9 +38,33 @@ engine serves one, and is free to exploit everything it knows about it. That nar
   directory. At run time it loads no Python and starts no Python process. The tools used to develop and build it
   may be anything, Python included: only the executable counts.
 
-On every build EngineSmith checks that the engine is a native executable that links no Python or MLX library
-(`[engine] native` in [docs/task.md](docs/task.md)). Shared engines publish their source, so anyone can read how the
-rest is met.
+**What an engine may link.** Only the operating system's and the C/C++ runtime's libraries, the accelerator's driver
+and runtime layer (which allocates memory, loads the engine's own kernels and launches them: Metal on Apple Silicon,
+the HIP runtime on AMD), and utilities that do no arithmetic on the model. Anything that computes on the model is
+refused: frameworks, inference runtimes and precompiled numerical libraries (MLX, PyTorch, Core ML, llama.cpp, MPS,
+Accelerate, rocBLAS); their open-source kernels may be copied into the engine's source instead. A library call is a
+wall that no fusion or specialization crosses, and with a library doing the arithmetic the score would measure the
+library, not the engine. Every platform checks its own list of allowed libraries on every build (`[engine] native` in
+[docs/task.md](docs/task.md)); [docs/libraries.md](docs/libraries.md) explains each one, with a MacBook as the
+example. Shared engines publish their source, so anyone can read how the rest is met.
+
+**How it differs from a general engine.** A general engine assembles the model at run time: it reads the architecture
+and the sizes from the model file, strings generic operators (matrix multiplication, normalization, attention, ...)
+into a computation graph, and runs the graph node by node, choosing a kernel for each node's type and shape and
+writing each result to memory for the next node to read. That is what lets one program serve hundreds of models. A
+specialized engine has no graph: its code is this model's computation in a fixed order, so it can fuse any steps and
+keep intermediate results on the chip.
+
+| | A general engine (llama.cpp) | An EngineSmith engine |
+|---|---|---|
+| Serves | hundreds of models with one program | one model on one machine |
+| Architecture and sizes | read from the model file at run time | constants in the code |
+| Execution | a graph of generic operators, assembled at run time | a fixed sequence written for this model |
+| Kernels | each handles many shapes and quantization formats | written for this model's shapes and format |
+| Fusion | the combinations it implements generically | any steps, for example a whole layer |
+| Tuned for | many chips | one chip |
+| Written by | people, over years | coding agents, per model (Molten: 78 sessions) |
+| A new model | runs at once | needs a new engine |
 
 ## Quick start
 
@@ -123,6 +147,7 @@ shared result never has to be taken on trust. Read the source before you run an 
 
 - [How EngineSmith works](docs/design.md)
 - [Contributing](CONTRIBUTING.md): engines, skill knowledge, worked examples, coding agents, other platforms and references
+- [What an engine may link](docs/libraries.md), with a MacBook as the example
 - [The task file](docs/task.md)
 - [The engine protocol](docs/protocol.md)
 - [The setup skill](skills/enginesmith-setup/SKILL.md), for the user's coding agent

@@ -95,7 +95,7 @@ and chunked kernels usually break.
 
 Everything that depends on the operating system or the accelerator is in `src/enginesmith/platforms/<name>.py`: the
 machine facts and checks (`doctor`), the memory budget (`probe`), the memory watchdog, sleep inhibition, the
-native-executable check and the default reference. `macos.py` serves Apple Silicon; `generic.py` is the fallback
+native-executable check with its list of allowed libraries ([libraries.md](libraries.md)) and the default reference. `macos.py` serves Apple Silicon; `generic.py` is the fallback
 that keeps the harness and its tests working anywhere. References live in `src/enginesmith/references/` and are
 selected by `[reference] kind` or the platform's default. CONTRIBUTING.md says how to add both.
 

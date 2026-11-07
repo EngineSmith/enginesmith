@@ -15,6 +15,7 @@ from pathlib import Path
 from enginesmith import agents, references, workload
 from enginesmith.brief import reference_argv, reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, MIN_TIMEOUT, TIMEOUT_FACTOR
+from enginesmith.platforms import current
 from enginesmith.task import Task, decode_rule
 
 
@@ -92,6 +93,10 @@ def explain(task: Task) -> str:
             + f' (vocabulary bound for prompts: {task.vocab_size:,}).']
     out += _architecture(task)
     out += [f'- Decode: {decode_rule(task.one_forward_per_token)}.']
+    allowed = current().ALLOWED
+    out += [f'- Libraries: the engine may link only {", ".join(f"`{n}`" for n in sorted(allowed, key=str.lower))} '
+            '(docs/libraries.md); the build is refused otherwise.' if task.native and allowed else
+            f'- Libraries: not checked ({"[engine] native = false" if not task.native else "this platform has no list"}).']
     kind = reference_kind(task)
     described = {'mlx-lm': 'stock mlx-lm, reproducing `generate_step` token for token: prefill in chunks of '
                            'min(2048, remaining - 1) tokens, the last prompt token alone, greedy decoding pipelined '

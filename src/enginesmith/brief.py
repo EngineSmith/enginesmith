@@ -53,9 +53,14 @@ def contract(task: Task, kind: str, start: str) -> str:
     if a.case_improvement:
         rules.append(f'one case\'s prefill or decode speedup improves by at least {_percent(a.case_improvement)}, '
                      f'while the score gets worse by at most {_percent(a.max_regression)}')
-    native = ('\n- The engine must be native and self-contained: one executable that does not load Python, MLX, '
-              'mlx-lm or any other inference runtime, and needs no files other than the model directory. You may '
-              'read and adapt the source of any open-source project (respect its license).') if task.native else ''
+    allowed = current().ALLOWED
+    native = ('\n- The engine must be native and self-contained: one executable that needs no files other than the '
+              'model directory and computes the model with its own source. It links only the operating system\'s '
+              'and the C/C++ runtime\'s libraries, the accelerator\'s driver and runtime layer, and utilities that do '
+              'no arithmetic on the model' + (f' (here: {", ".join(sorted(allowed, key=str.lower))})' if allowed else '')
+              + '; never Python, a framework, an inference runtime or a precompiled numerical library (MLX, mlx-lm, '
+              'PyTorch, llama.cpp, a BLAS and the like). You may read and adapt the source of any open-source '
+              'project (respect its license): copied kernels are the engine\'s own source.') if task.native else ''
     forward = ('\n- Decode computes one forward pass of the checkpoint per generated token: no draft models, and no '
                'drafted, speculated or looked-up tokens verified in batches.') if task.one_forward_per_token else ''
     card = '\n- `brief/model-card.md`: the model card written when this task was set up.' if task.model_card else ''

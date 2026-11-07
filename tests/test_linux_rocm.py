@@ -144,7 +144,8 @@ def test_the_native_check_allows_the_hip_runtime_only(tmp_path):
         engine.write_bytes(elf(['libc.so.6', library]))
         assert linux_rocm.native_problem(engine).startswith(f'links {library}, a precompiled'), library
     engine.write_bytes(elf(['libc.so.6', 'libfoo.so.2']))
-    assert linux_rocm.native_problem(engine) == 'links libfoo.so.2, which is not a system or HIP runtime library'
+    assert linux_rocm.native_problem(engine) == ('links libfoo.so.2, which is not a system or HIP runtime library '
+                                                 '(docs/libraries.md)')
     engine.write_text('#!/bin/sh\nexec python -m engine "$@"\n')
     assert 'not an ELF' in linux_rocm.native_problem(engine)
     engine.write_bytes(b'\x7fELF')

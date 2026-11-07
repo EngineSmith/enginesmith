@@ -112,9 +112,12 @@ module must define:
 | `memory_budget()` | bytes the model and its KV cache may use; `enginesmith probe` uses it to say which prompt lengths fit | a fraction of free VRAM |
 | `memory_critical()` | true when memory is about to run out; the watchdog then kills every engine it started | host `MemAvailable` (`/proc/meminfo`) below a few percent |
 | `keep_awake()` | keep the machine from sleeping while the run's process lives, or `None` | `systemd-inhibit`, or `None` on servers |
-| `native_problem(path)` | `None` when `path` is a self-contained native executable, else why not; it must refuse scripts and executables that load Python or an inference runtime, and may allow system and driver libraries | ELF magic, then `ldd`: allow `libcuda` / `libcudart`, refuse `libpython`, `libtorch` and the like |
+| `ALLOWED` | the set of libraries an engine may link, by the rule of [docs/libraries.md](docs/libraries.md): the system and C/C++ runtimes, the accelerator's driver and runtime layer, utilities that do no arithmetic on the model | `libc`, `libstdc++`, `libcuda`, `libcudart`, ...; not cuBLAS, cuDNN or TensorRT |
+| `native_problem(path)` | `None` when `path` is a self-contained native executable that links only `ALLOWED`, else why not; it must refuse scripts and every library outside `ALLOWED` (an allow-list, never a list of refused names) | ELF magic, then the direct dependencies (`DT_NEEDED`, as `linux_rocm.py` reads them) |
 
-`tests/test_platforms.py` checks every module in `PLATFORMS` against this interface. Add CPU tests for your parsing,
+`tests/test_platforms.py` checks every module in `PLATFORMS` against this interface, and that `ALLOWED` equals the
+"Allowed" table of the platform's section in [docs/libraries.md](docs/libraries.md). The pull request adds that
+section: what each library does, why it passes the three questions there, and the libraries the platform refuses. Add CPU tests for your parsing,
 for example with recorded `nvidia-smi` output, so that the suite still passes on any machine.
 
 ### 2. A reference: `src/enginesmith/references/<name>.py`

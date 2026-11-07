@@ -18,7 +18,7 @@ copies the resolved task into `RUN/task.json` when it starts; nothing changes it
 | `evaluate_seed` | true when `seed` is set | evaluate the seed before the first session; if it passes, it is the first best engine |
 | `build` | `["cargo", "build", "--release"]` | the build command, run in a clean checkout of the candidate |
 | `executable` | `target/release/engine` | the executable the build produces, relative to the source |
-| `native` | true | require a Mach-O executable that links no Python or MLX library |
+| `native` | true | require a native executable that links only the platform's allowed libraries ([libraries.md](libraries.md)) |
 | `one_forward_per_token` | true | the session brief requires one forward pass per generated token, which rules out speculative decoding. The harness cannot check it; shared engines publish their source. `false` allows speculative decoding, and the plan, the report and the shared README say the speedups are not like for like |
 | `skill` | `skills/specialized-inference-engine` | the skill directory copied into every session's brief |
 | **[agent]** | | |

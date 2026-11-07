@@ -1,5 +1,7 @@
 import importlib
 import inspect
+import re
+from pathlib import Path
 
 import pytest
 
@@ -7,7 +9,8 @@ from conftest import write_task
 from enginesmith import brief, platforms, references
 from enginesmith.task import TaskError, load_task
 
-INTERFACE = {'NAME': str, 'DEFAULT_REFERENCE': (str, type(None))}
+INTERFACE = {'NAME': str, 'DEFAULT_REFERENCE': (str, type(None)), 'ALLOWED': (set, type(None))}
+LIBRARIES = Path(__file__).resolve().parents[1] / 'docs' / 'libraries.md'
 FUNCTIONS = ('supported', 'machine', 'checks', 'memory_budget', 'memory_critical', 'keep_awake', 'native_problem')
 
 
@@ -19,6 +22,51 @@ def test_every_platform_implements_the_interface(name):
     for function in FUNCTIONS:
         assert inspect.isfunction(getattr(module, function)), function
     assert module.DEFAULT_REFERENCE in (None, *references.KINDS)
+
+
+def documented_libraries(name: str) -> set[str]:
+    """The libraries in the "Allowed" table of the platform's section of docs/libraries.md."""
+    section = re.search(rf'^## [^\n]*`{re.escape(name)}`[^\n]*\n(.*?)(?=^## |\Z)', LIBRARIES.read_text(), re.M | re.S)
+    assert section, f'docs/libraries.md has no section for {name}'
+    table = re.search(r'^\| Allowed \|.*?\n\|[-| ]+\|\n((?:\|.*\n)+)', section.group(1), re.M)
+    assert table, f'the {name} section of docs/libraries.md has no "Allowed" table'
+    return {library for row in table.group(1).splitlines() for library in re.findall(r'`([^`]+)`', row.split('|')[1])}
+
+
+@pytest.mark.parametrize('name', platforms.PLATFORMS)
+def test_docs_list_every_library_a_platform_allows(name):
+    module = importlib.import_module(name)
+    if module.ALLOWED is not None:
+        assert documented_libraries(module.NAME) == module.ALLOWED
+
+
+def test_the_macos_native_check_allows_only_listed_system_libraries(tmp_path, monkeypatch):
+    macos = importlib.import_module('enginesmith.platforms.macos')
+    engine = tmp_path / 'engine'
+    engine.write_bytes(macos.MACH_O[0] + bytes(60))
+    listing = [f'{engine}:', '\t/System/Library/Frameworks/Metal.framework/Versions/A/Metal (compatibility version 1.0.0)',
+               '\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (compatibility version 300.0.0)',
+               '\t/usr/lib/libobjc.A.dylib (compatibility version 1.0.0)',
+               '\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)']
+    monkeypatch.setattr(macos, '_run', lambda argv, timeout=20: '\n'.join(listing))
+    assert macos.native_problem(engine) is None
+    for library in ('/System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/MetalPerformanceShaders',
+                    '/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate',
+                    '/System/Library/Frameworks/CoreML.framework/Versions/A/CoreML',
+                    '/opt/homebrew/opt/python@3.12/Frameworks/Python.framework/Versions/3.12/Python',
+                    '@rpath/libmlx.dylib'):
+        listing.append(f'\t{library} (compatibility version 1.0.0)')
+        assert macos.native_problem(engine).startswith(f'links {library}, a framework'), library
+        listing.pop()
+    for library in ('@rpath/libfoo.dylib', '/opt/homebrew/lib/libc++.1.dylib'):
+        listing.append(f'\t{library} (compatibility version 1.0.0)')
+        assert macos.native_problem(engine) == (f'links {library}, which is not an allowed system library '
+                                                '(docs/libraries.md)'), library
+        listing.pop()
+    monkeypatch.setattr(macos, '_run', lambda argv, timeout=20: None)
+    assert 'otool' in macos.native_problem(engine)
+    engine.write_text('#!/bin/sh\nexec python -m engine "$@"\n')
+    assert 'not a Mach-O' in macos.native_problem(engine)
 
 
 def test_the_generic_platform_works_anywhere(tmp_path):

@@ -43,8 +43,8 @@ ideas to test here, never facts: their costs were measured on a different GPU wi
      time against the installed headers. No crate that wraps a numerical library.
    - Link only system libraries and the HIP runtime layer: `libamdhip64`, `libhsa-runtime64`, `libhiprtc`,
      `libamd_comgr` (and what they need). The harness's native check reads the binary's direct dependencies and
-     refuses rocBLAS, hipBLAS / hipBLASLt, MIOpen, Composable Kernel, aiter, RCCL, rocPRIM / hipCUB, Triton, torch and
-     anything else outside its allow-list.
+     refuses rocBLAS, hipBLAS / hipBLASLt, MIOpen, Composable Kernel, aiter, rocPRIM / hipCUB, Triton, torch and
+     anything else outside its allow-list (`docs/libraries.md`; RCCL is allowed for now).
    - Open-source kernels from those projects may be **copied and adapted into the engine's source**: aiter and CK
      kernels, the HIP source of attention kernels, vLLM's ROCm kernels. Respect each licence (keep its notice, record
      the project, commit and file you copied from in the engine's provenance notes). Triton kernels cannot run (they
