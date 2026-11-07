@@ -122,6 +122,21 @@ The workload is raw token ids from a public formula, from 1 to 524,288 tokens, s
 tokenizer. The reference is stock mlx-lm, so a new model needs no framework code. [docs/design.md](docs/design.md)
 has the details.
 
+## Roadmap
+
+Not implemented yet; each item has an issue for the design.
+
+- **Batches.** Every request is one sequence today (batch size 1). Planned: batch sizes as a second workload
+  dimension next to prompt lengths, each with its own weight in the score
+  ([#14](https://github.com/EngineSmith/enginesmith/issues/14)).
+- **Speculative decoding as part of the model.** A task that declares the algorithm and its draft weights, with the
+  reference running the same, timed on real text ([#3](https://github.com/EngineSmith/enginesmith/issues/3)).
+- **Judging.** A timed workload agents cannot learn ([#12](https://github.com/EngineSmith/enginesmith/issues/12)),
+  and no acceptance for a rejected candidate resubmitted unchanged
+  ([#13](https://github.com/EngineSmith/enginesmith/issues/13)).
+- **More platforms.** AWS Trainium2 is in review ([#11](https://github.com/EngineSmith/enginesmith/pull/11)); NVIDIA
+  GPUs plug in the same way ([CONTRIBUTING.md](CONTRIBUTING.md)).
+
 ## Share an engine, check someone else's
 
 When a run is done, your agent asks whether to share the engine. You can also just say so at any time, in your own
