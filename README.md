@@ -137,6 +137,9 @@ Not implemented yet; each item has an issue for the design.
 - **Speculative decoding as part of the model.** A task that declares the algorithm and its draft weights, with the
   reference running the same, timed on real text ([#3](https://github.com/EngineSmith/enginesmith/issues/3)).
 - **Judging.** A timed workload agents cannot learn ([#12](https://github.com/EngineSmith/enginesmith/issues/12)).
+- **Distance to the hardware bound.** Each report shows how close the engine runs to its memory-bandwidth floor
+  (decode) and compute floor (prefill), dense models first
+  ([#16](https://github.com/EngineSmith/enginesmith/issues/16)).
 - **Models no framework runs on a platform.** Correctness judged against a CPU computation of the checkpoint, and
   speed reported without a reference to time against
   ([#15](https://github.com/EngineSmith/enginesmith/issues/15)).
