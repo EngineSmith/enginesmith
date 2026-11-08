@@ -121,6 +121,8 @@ def main(argv=None) -> int:
     p.add_argument('--rounds', type=int, default=1)
     p.add_argument('--no-build', action='store_true')
     p.add_argument('--cooldown', type=float, help='seconds before each engine process (default: the task\'s)')
+    p.add_argument('--levels', help='a concurrent task: comma-separated concurrency levels (default: all of them)')
+    p.add_argument('--requests', type=int, help='a concurrent task: requests per level (default: the task\'s)')
     p = sub.add_parser('dataset', help='write the public development prompts as JSON lines')
     p.add_argument('--vocab', type=int, required=True)
     p.add_argument('--lengths', default=','.join(map(str, workload.LENGTHS)))
@@ -239,7 +241,7 @@ def main(argv=None) -> int:
                         use_binary=args.binary, log=lambda m: print(m, file=sys.stderr, flush=True)))
         elif args.command == 'dev-eval':
             from enginesmith import dev_eval
-            return dev_eval.run(args.lengths, args.rounds, not args.no_build, args.cooldown)
+            return dev_eval.run(args.lengths, args.rounds, not args.no_build, args.cooldown, args.levels, args.requests)
         elif args.command == 'dataset':
             lengths = [int(n) for n in args.lengths.split(',')]
             with open(args.out, 'x') as out:

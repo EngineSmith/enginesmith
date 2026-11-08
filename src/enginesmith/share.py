@@ -346,6 +346,8 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
     user's GitHub account (public unless private) and a post in EngineSmith's Discussions (category Engines) shows its
     results and links it; this uses the GitHub CLI and the user's login."""
+    if run.task.mode == 'concurrent':
+        raise ValueError('sharing an engine of a concurrent task is not supported yet')
     label = label or run.state['incumbent']
     if not label or not (run.round_dir(label) / 'engine').is_file():
         raise ValueError('nothing to share: the run has no built engine for that round')

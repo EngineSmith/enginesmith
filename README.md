@@ -130,9 +130,10 @@ Not implemented yet; each item has an issue for the design.
 - **Batches.** Every request is one sequence today (batch size 1). Planned: batch sizes as a second workload
   dimension next to prompt lengths, each with its own weight in the score
   ([#14](https://github.com/EngineSmith/enginesmith/issues/14)).
-- **Concurrent requests.** Requests that arrive while others are running, as a serving system meets them
-  (continuous batching): throughput compared at each concurrency level, with each request's latency reported. A
-  workload mode with its own evaluator beside today's, staged after batches
+- **Concurrent requests.** A first version exists on Apple Silicon (`[workload] mode = "concurrent"`,
+  [docs/task.md](docs/task.md)): closed-loop clients per concurrency level, independent requests, throughput, time to
+  first token and normalized latency against mlx-lm's own continuous batching. Next: conversations that append to
+  earlier requests, requests that arrive on their own schedule, AMD and Trainium references
   ([#14](https://github.com/EngineSmith/enginesmith/issues/14)).
 - **Speculative decoding as part of the model.** A task that declares the algorithm and its draft weights, with the
   reference running the same, timed on real text ([#3](https://github.com/EngineSmith/enginesmith/issues/3)).

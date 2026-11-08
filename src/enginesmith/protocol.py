@@ -128,11 +128,12 @@ class Engine:
             raise EngineFailure('error', str(reply.get('error', 'ok is not true'))[:500])
         return reply, elapsed
 
-    def hello(self, timeout: float) -> float:
-        """Wait until the model is loaded; returns the load time in milliseconds."""
+    def hello(self, timeout: float, protocol: int = PROTOCOL) -> float:
+        """Wait until the model is loaded; returns the load time in milliseconds. protocol: the version the engine
+        must answer (1 for single requests, 2 for the concurrent protocol of enginesmith.concurrent)."""
         reply, elapsed = self.call('hello', timeout)
-        if reply.get('protocol') != PROTOCOL:
-            raise EngineFailure('protocol', f'hello must answer protocol {PROTOCOL}')
+        if reply.get('protocol') != protocol:
+            raise EngineFailure('protocol', f'hello must answer protocol {protocol}')
         return elapsed
 
     def generate(self, prompt, max_tokens: int, reset: bool, vocab: int, timeout: float) -> tuple[list[int], float]:

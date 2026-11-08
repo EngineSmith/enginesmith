@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 
-from enginesmith import acceptance, agents, brief, engine_repo, references, report
+from enginesmith import acceptance, agents, brief, concurrent, engine_repo, references, report
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan, ReferenceFailed, Stopped, rows
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog, kill_group
@@ -111,7 +111,9 @@ class Run:
                           if brief.reference_kind(task) else None},
             'inputs': {'skill': tree_digest(task.skill), 'model_card': tree_digest(task.model_card)}, 'initial_commit': initial, 'seed_pending': task.evaluate_seed,
             'sessions': 0, 'rounds': [], 'current': None, 'incumbent': None, 'latest': None,
-            'evaluation_s': [estimate] if estimate else [], 'search_end': None, 'final': None, 'error': None})
+            'evaluation_s': [estimate] if estimate else [], 'search_end': None, 'final': None, 'error': None,
+            # A concurrent task's request plan (lengths, clients, start times): one for every round of the run.
+            'structure_seed': os.urandom(32).hex() if task.mode == 'concurrent' else None})
         return cls(directory)
 
     # Bookkeeping -------------------------------------------------------------------------------------------------
@@ -180,7 +182,7 @@ class Run:
             return True
         if phase == 'final':
             self._final()
-            if self.state['incumbent'] and not self.state.get('error'):
+            if self.state['incumbent'] and not self.state.get('error') and self.task.mode == 'single':
                 self.decode_probe(self.state['incumbent'], self.dir / 'decode-probe')
             run_quality = self.task.quality and self.state['incumbent'] and not self.state.get('error')
             self.state['phase'] = 'quality' if run_quality else 'done'
@@ -365,17 +367,26 @@ class Run:
         record['build'] = result
         record['step'] = 'evaluate' if result['passed'] else 'decide'
 
-    def plan(self, rounds: int, windows: str, seed: bytes) -> Plan:
+    def plan(self, rounds: int, windows: str, seed: bytes, structure_seed: bytes | None = None):
         t = self.task
+        if t.mode == 'concurrent':
+            return concurrent.plan(t, rounds, windows, seed,
+                                   structure_seed or bytes.fromhex(self.state['structure_seed']))
         return Plan(tuple(t.cases()), t.vocab_size, rounds, t.evaluation.warmup, t.evaluation.cooldown_s, t.gates,
                     t.objective, windows, seed)
 
-    def _evaluator(self, engine: Path, plan: Plan, directory: Path, stop) -> Evaluator:
+    def _evaluator(self, engine: Path, plan, directory: Path, stop) -> Evaluator:
         if harness_digest() != self.state['harness']:
             raise RunError('the harness source changed during the run; evaluations stopped')
         if directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(parents=True)
+        if self.task.mode == 'concurrent':
+            return concurrent.ConcurrentEvaluator(
+                brief.reference_argv(self.task), brief.reference_concurrent_argv(self.task),
+                [str(engine), '--model', str(self.task.model)], plan, directory, registry=self.registry,
+                log=self.event, stop=stop, reference_controls=self.dir / 'cache' / 'reference-controls.json',
+                engine_cores=self.task.reference_tp)
         return Evaluator(brief.reference_argv(self.task), [str(engine), '--model', str(self.task.model)], plan,
                          directory, registry=self.registry, log=self.event, stop=stop,
                          reference_controls=self.dir / 'cache' / 'reference-controls.json',
@@ -448,10 +459,10 @@ class Run:
         lines = [f'# Session facts: round {record["label"]} ({record["kind"]})', '']
         if s['incumbent']:
             best = self.evaluation(s['incumbent'])
+            means = ', '.join(f'{k} mean {v:.4f}' for k, v in best['segments'].items() if v is not None)
             lines += [f'## The current best engine: round {s["incumbent"]}', '',
-                      f'Score {best["score"]:.4f}; prefill mean {best["segments"]["prefill"]:.4f}, decode mean '
-                      f'{best["segments"]["decode"]:.4f} (speedups over the reference).', '', brief.case_table(best),
-                      '']
+                      f'Score {best["score"]:.4f}; {means} (speedups over the reference).', '',
+                      brief.case_table(best), '']
         if record['kind'] == 'repair':
             lines += [f'## Round {record["base_round"]} (the candidate in engine/) failed', '',
                       brief.failure_text(self.record(record['base_round'])), '']
@@ -544,9 +555,12 @@ class Run:
         if saved is None:
             # The held-out windows come from a seed created now, after the last coding session.
             saved = {'round': s['incumbent'], 'seed': os.urandom(32).hex(), 'started': time.time()}
+            if self.task.mode == 'concurrent':  # and a request plan the search never saw
+                saved['structure_seed'] = os.urandom(32).hex()
             write_json(directory / 'final.json', saved)
         self.event(f'final: evaluating round {saved["round"]} on held-out prompts')
-        plan = self.plan(self.task.evaluation.final_rounds, 'held_out', bytes.fromhex(saved['seed']))
+        plan = self.plan(self.task.evaluation.final_rounds, 'held_out', bytes.fromhex(saved['seed']),
+                         bytes.fromhex(saved['structure_seed']) if saved.get('structure_seed') else None)
         evaluator = self._evaluator(self.round_dir(saved['round']) / 'engine', plan, directory / 'evaluation',
                                     stop=lambda: self.stop_mode() == 'abort')
         try:
