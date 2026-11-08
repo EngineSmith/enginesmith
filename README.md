@@ -130,6 +130,9 @@ Not implemented yet; each item has an issue for the design.
 - **Batches.** Every request is one sequence today (batch size 1). Planned: batch sizes as a second workload
   dimension next to prompt lengths, each with its own weight in the score
   ([#14](https://github.com/EngineSmith/enginesmith/issues/14)).
+- **Concurrent requests.** Requests that arrive while others are running, as a serving system meets them
+  (continuous batching): throughput compared at each concurrency level, with each request's latency reported;
+  staged after batches ([#14](https://github.com/EngineSmith/enginesmith/issues/14)).
 - **Speculative decoding as part of the model.** A task that declares the algorithm and its draft weights, with the
   reference running the same, timed on real text ([#3](https://github.com/EngineSmith/enginesmith/issues/3)).
 - **Judging.** A timed workload agents cannot learn ([#12](https://github.com/EngineSmith/enginesmith/issues/12)),
