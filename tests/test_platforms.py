@@ -96,3 +96,90 @@ def test_the_reference_comes_from_the_task_or_the_platform(tmp_path, model_dir, 
         load_task(path)
     custom = load_task(write_task(tmp_path, model_dir))
     assert brief.reference_kind(custom) is None and brief.reference_argv(custom) == list(custom.reference)
+
+
+NEURON_LS = '''[{"instance_type": "trn2.48xlarge", "neuron_device": 0, "nc_count": 4, "logical_neuroncore_config": 2,
+  "memory_size": 103079215104, "neuroncore_ids": [0, 1, 2, 3], "neuron_processes": []},
+ {"instance_type": "trn2.48xlarge", "neuron_device": 1, "nc_count": 4, "logical_neuroncore_config": 2,
+  "memory_size": 103079215104, "neuroncore_ids": [4, 5, 6, 7], "neuron_processes": []}]'''
+
+
+def test_the_neuron_platform_reads_neuron_ls(monkeypatch):
+    neuron = importlib.import_module('enginesmith.platforms.neuron')
+    monkeypatch.setattr(neuron, '_run', lambda argv, timeout=20: NEURON_LS if 'neuron-ls' in argv[0] else None)
+    facts = neuron.machine()
+    assert facts['chip'] == 'trn2.48xlarge' and facts['accelerator_cores'] == 8 and facts['neuron_devices'] == 2
+    assert facts['memory_bytes'] == 103079215104 // 4 and facts['logical_neuroncore_config'] == 2
+    assert neuron.memory_budget() == int(103079215104 // 4 * 0.9)
+    monkeypatch.setattr(neuron, '_run', lambda argv, timeout=20: None)
+    problems, _ = neuron.checks(neuron.machine())
+    assert any('neuron-ls lists no Neuron device' in p for p in problems)
+
+
+def test_the_neuron_native_check_refuses_scripts_and_frameworks(tmp_path, monkeypatch):
+    neuron = importlib.import_module('enginesmith.platforms.neuron')
+    script = tmp_path / 'engine.sh'
+    script.write_text('#!/bin/sh\n')
+    assert 'not an ELF' in neuron.native_problem(script)
+    binary = tmp_path / 'engine'
+    binary.write_bytes(b'\x7fELF' + bytes(60))
+    rocm = importlib.import_module('enginesmith.platforms.linux_rocm')
+    allowed = ['libnrt.so.1', 'libstdc++.so.6', 'libm.so.6', 'libgcc_s.so.1', 'libc.so.6']  # a real engine's
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed)
+    assert neuron.native_problem(binary) is None
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed + ['libpython3.12.so.1.0'])
+    assert 'libpython3.12' in neuron.native_problem(binary)
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed + ['libtorch_cpu.so'])
+    assert 'libtorch_cpu' in neuron.native_problem(binary)
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: allowed + ['libopenblas.so.0'])
+    assert 'not a system library' in neuron.native_problem(binary)  # an allow-list: unknown names are refused
+    monkeypatch.setattr(rocm, 'needed_libraries', lambda data: ['libstdc++.so.6', 'libc.so.6'])
+    assert 'NeuronCores' in neuron.native_problem(binary)
+
+
+def test_a_fixed_length_reference_is_told_the_longest_request(tmp_path, model_dir):
+    path = tmp_path / 'task.toml'
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n[reference]\n'
+                    'kind = "nxdi"\n[workload]\nlengths = [256, 1024]\noutput_tokens = 65\n')
+    task = load_task(path)
+    assert task.max_request_length() == 4097 + 65  # the longest control prompt
+    assert brief.reference_argv(task)[1:] == ['-m', 'enginesmith.references.nxdi', '--model', str(model_dir),
+                                              '--max-length', '4162']
+    assert references.command('mlx-lm', model_dir, 4162)[-1] == str(model_dir)
+
+
+def test_the_neuron_platform_gives_engines_the_run_cores(monkeypatch, tmp_path):
+    neuron = importlib.import_module('enginesmith.platforms.neuron')
+    monkeypatch.delenv('ENGINESMITH_NEURON_CORE', raising=False)
+    assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '0-1'}
+    monkeypatch.setenv('ENGINESMITH_NEURON_CORE', '8')
+    assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '8-9'}  # the reference: generate and judge
+    assert neuron.engine_environment(1) == {'NEURON_RT_VISIBLE_CORES': '8'}  # the engine: the cores it generates on
+    monkeypatch.setattr(platforms, 'current', lambda: neuron)
+    from enginesmith import protocol
+    assert protocol.engine_environment(tmp_path)['NEURON_RT_VISIBLE_CORES'] == '8-9'
+    assert protocol.engine_environment(tmp_path, engine_cores=1)['NEURON_RT_VISIBLE_CORES'] == '8'
+    monkeypatch.setenv('ENGINESMITH_NEURON_CORE', 'x')
+    with pytest.raises(ValueError):
+        neuron.engine_environment()
+
+
+def test_a_tensor_parallel_reference_gets_its_degree_and_the_run_its_cores(tmp_path, model_dir, monkeypatch):
+    path = tmp_path / 'task.toml'
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n[reference]\n'
+                    'kind = "nxdi"\ntensor_parallel = 4\n[workload]\nlengths = [256]\n')
+    task = load_task(path)
+    assert task.reference_tp == 4 and brief.reference_argv(task)[-2:] == ['--tp', '4']
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n[reference]\n'
+                    'kind = "mlx-lm"\ntensor_parallel = 2\n')
+    with pytest.raises(TaskError, match='tensor_parallel'):
+        load_task(path)
+    neuron = importlib.import_module('enginesmith.platforms.neuron')
+    monkeypatch.setenv('ENGINESMITH_NEURON_CORE', '16')
+    monkeypatch.setenv('ENGINESMITH_NEURON_CORES', '8')
+    assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '16-23'}
+    assert neuron.engine_environment(4) == {'NEURON_RT_VISIBLE_CORES': '16-19'}  # the engine: exactly the N cores
+    with pytest.raises(ValueError, match='twice'):
+        neuron.engine_environment(16)
+    monkeypatch.setenv('ENGINESMITH_NEURON_CORES', '1')
+    assert neuron.engine_environment() == {'NEURON_RT_VISIBLE_CORES': '16'}

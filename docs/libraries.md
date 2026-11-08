@@ -102,6 +102,27 @@ name up to `.so`.
 | `librocprim`, `libhipcub`, `librocsolver`, `librocfft`, `librocsparse`, `librocrand` and their `hip` versions | numerical primitives | precompiled numerical kernels |
 | `libtorch`, `libc10`, `libmigraphx`, `libtriton`, `libvllm`, `libpython` | frameworks, compilers and runtimes | they would compute the model |
 
+## AWS Trainium2 (`linux-neuron`)
+
+The check reads the executable's direct dependencies (the ELF `DT_NEEDED` entries), as on AMD, and also requires
+libnrt: an executable that does not link it computes the model on the host CPU.
+
+| Allowed | What it does | Why it is allowed |
+|---|---|---|
+| `libc`, `libm`, `libdl`, `libpthread`, `librt`, `libutil`, `libgcc_s`, `libstdc++` | the C and C++ runtimes | the operating system |
+| `ld-linux-x86-64`, `ld-linux-aarch64`, `linux-vdso` | the dynamic loader and the kernel's system-call page | they start the program |
+| `libnrt` | the Neuron runtime: device memory, loading the engine's own compiled kernels (NEFF files) onto the NeuronCores and running them, tensors in and out | the driver and runtime layer: there is no other way to the NeuronCores, and it brings no kernels of its own. It loads its collectives library (communication between NeuronCores) itself; that is allowed for now, see "Open questions" |
+
+| Refused | What it is | Why |
+|---|---|---|
+| NxD Inference (`neuronx_distributed_inference`), `libneuronxla`, torch-neuronx, `libtorch` | Neuron's inference runtime, its XLA bridge and PyTorch | they would compute the model |
+| vLLM, `libxla`, JAX, TensorFlow, `libonnxruntime` | frameworks and runtimes | they would compute the model |
+| `libpython` | the Python interpreter | the engine must be self-contained |
+
+The NKI compiler (`neuronx-cc`) runs at build time only: it compiles the engine's own kernel source to NEFF files,
+which the executable embeds. The kernels are the engine's source; kernels copied from the open-source NKI library
+become the engine's own, as for copied source anywhere ("Code compiled into the executable").
+
 ## Code compiled into the executable
 
 A library linked statically, a Rust crate or code copied from another project becomes part of the executable and
@@ -125,6 +146,6 @@ refuses. CONTRIBUTING.md has the rest of the interface.
 
 ## Open questions
 
-- **Communication between GPUs** (RCCL on AMD, NCCL on NVIDIA). Their collectives compute on the model's activations
+- **Communication between GPUs** (RCCL on AMD, NCCL on NVIDIA, libnrt's collectives on Trainium). Their collectives compute on the model's activations
   (an all-reduce sums them), and specialized communication has room in decode, where the messages are small and can
   be fused with the next step. They are allowed for now, to be decided when an engine needs several GPUs.

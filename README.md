@@ -12,9 +12,9 @@ Its first engine, for LFM2.5-24B-A2B on an Apple M5 Max, was released as
 [Molten](https://github.com/zhangshuibai/molten). Over 78 agent sessions it went from 0.56x to 1.25x the
 end-to-end speed of mlx-lm.
 
-**Status: research code under active development.** Apple Silicon (mlx-lm as the reference) and AMD Instinct GPUs
-on Linux (ROCm, SGLang as the reference; see the setup skill); support for other platforms (CUDA, ...) plugs in
-without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
+**Status: research code under active development.** Apple Silicon (mlx-lm as the reference), AMD Instinct GPUs
+on Linux (ROCm, SGLang as the reference) and AWS Trainium2 (NxD Inference as the reference); see the setup skill.
+Support for other platforms (CUDA, ...) plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What a specialized engine is
 
@@ -112,14 +112,15 @@ uv run enginesmith status tasks/NAME/runs/RUN
    noise. Rejected candidates and their reasons go to the next sessions as facts.
 5. **Final.** After the last session, the best engine is evaluated on held-out prompts drawn from a seed created
    at that moment.
-6. **Task accuracy.** Then the best engine and mlx-lm both answer MATH-500 and IFEval with greedy decoding, and the
+6. **Task accuracy.** Then the best engine and the reference both answer MATH-500 and IFEval with greedy decoding, and the
    report shows both accuracies side by side.
 7. **Checks on the speed.** The report and the shared README show two facts next to the score, neither gated: the
    speed on those natural-text prompts, and a decode probe, the same decode asked for in one request and one token
    per request. One forward pass per generated token keeps the probe near 1; speculative decoding raises it.
 
 The workload is raw token ids from a public formula, from 1 to 524,288 tokens, so it serves any model without a
-tokenizer. The reference is stock mlx-lm, so a new model needs no framework code. [docs/design.md](docs/design.md)
+tokenizer. The reference is the platform's stock library (mlx-lm on Apple Silicon, SGLang on AMD, NxD Inference on
+Trainium), so a new model needs no framework code. [docs/design.md](docs/design.md)
 has the details.
 
 ## Roadmap
@@ -134,8 +135,7 @@ Not implemented yet; each item has an issue for the design.
 - **Judging.** A timed workload agents cannot learn ([#12](https://github.com/EngineSmith/enginesmith/issues/12)),
   and no acceptance for a rejected candidate resubmitted unchanged
   ([#13](https://github.com/EngineSmith/enginesmith/issues/13)).
-- **More platforms.** AWS Trainium2 is in review ([#11](https://github.com/EngineSmith/enginesmith/pull/11)); NVIDIA
-  GPUs plug in the same way ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- **More platforms.** NVIDIA GPUs plug in the same way ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Share an engine, check someone else's
 

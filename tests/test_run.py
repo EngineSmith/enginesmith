@@ -1,3 +1,4 @@
+import importlib
 import json
 import shutil
 import sys
@@ -177,3 +178,40 @@ def test_the_agent_s_reported_usage_is_recorded(make_run):
     assert session['input_tokens'] == 150 and session['output_tokens'] == 20 and session['cache_read_tokens'] is None
     assert '$0.75' in (run.dir / 'report.html').read_text()
     assert json.loads((run.dir / 'report.json').read_text())['milestones']['total_input_tokens'] == 150
+
+
+def test_build_output_never_reaches_a_snapshot(tmp_path):
+    seed = tmp_path / 'seed'
+    (seed / 'src').mkdir(parents=True)
+    (seed / 'src' / 'engine.c').write_text('int main(void) { return 0; }\n')
+    (seed / '.gitignore').write_text('build/\n')  # a seed's own ignore file without target/
+    repository = tmp_path / 'engine.git'
+    engine_repo.init(repository, seed)
+    worktree = tmp_path / 'work'
+    engine_repo.checkout(repository, 'refs/rounds/000', worktree)
+    assert 'target/' in (worktree / '.gitignore').read_text()
+    (worktree / 'target' / 'neff-cache').mkdir(parents=True)
+    (worktree / 'target' / 'neff-cache' / 'kernel.neff').write_bytes(b'prebuilt')
+    engine_repo.git('add', '-f', 'target/neff-cache/kernel.neff', cwd=worktree)  # even when forced into the index
+    commit, _ = engine_repo.snapshot(repository, worktree, '001')
+    files = engine_repo.git('ls-tree', '-r', '--name-only', commit, cwd=repository).split()
+    assert 'src/engine.c' in files and not any(name.startswith('target/') for name in files)
+
+
+def test_a_build_on_a_busy_accelerator_is_retried_once(tmp_path, monkeypatch):
+    """On a platform that recognizes a busy accelerator (Trainium); other platforms never retry."""
+    from enginesmith import platforms
+    monkeypatch.setattr(platforms, 'current', lambda: importlib.import_module('enginesmith.platforms.neuron'))
+    monkeypatch.setattr(engine_repo.time, 'sleep', lambda s: None)
+    seed = tmp_path / 'seed'
+    seed.mkdir()
+    (seed / 'build.sh').write_text(
+        'if [ ! -f /tmp/__busy_$$PPID ]; then :; fi\n'
+        'if [ -f marker ]; then printf "#!/bin/sh\\n" > engine; chmod +x engine; exit 0; fi\n'
+        'touch marker; echo "NRT Error: Failed to initialize NRT runtime"; exit 1\n')
+    repository = tmp_path / 'engine.git'
+    commit = engine_repo.init(repository, seed)
+    (seed / '.gitignore').unlink(missing_ok=True)
+    result = engine_repo.build(repository, tmp_path / 'build', commit, ['bash', 'build.sh'], 'engine', False,
+                               tmp_path / 'out', tmp_path / 'build.log')
+    assert result['passed'] and b'retrying once' in (tmp_path / 'build.log').read_bytes()

@@ -17,7 +17,8 @@ NAMES = ('judging', 'core', 'open', 'vendored')
 PACKAGE = REPO / 'src' / 'enginesmith'
 # Packages of the optional extras are imported inside functions, and only here.
 OPTIONAL_IMPORTS = ('src/enginesmith/platforms/', 'src/enginesmith/references/', 'src/enginesmith/quality.py')
-PLATFORM_TOOLS = ('caffeinate', 'otool', 'system_profiler', 'pmset', 'xcrun', 'sysctl', 'nvidia-smi', 'rocm-smi')
+PLATFORM_TOOLS = ('caffeinate', 'otool', 'system_profiler', 'pmset', 'xcrun', 'sysctl', 'nvidia-smi', 'rocm-smi',
+                  'neuron-ls', 'neuron-monitor')
 
 
 def harness_files() -> list[str]:

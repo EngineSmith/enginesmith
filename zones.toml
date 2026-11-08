@@ -13,6 +13,7 @@ files = [
     "src/enginesmith/workload.py",            # the Lily prompts and the public, held-out and nonce ranges
     "src/enginesmith/references/mlx_lm.py",   # the reference on Apple Silicon
     "src/enginesmith/references/sglang.py",   # the reference on AMD Instinct GPUs
+    "src/enginesmith/references/nxdi.py",     # the reference on AWS Trainium
 ]
 
 [core]
@@ -43,6 +44,7 @@ files = [
     "src/enginesmith/platforms/generic.py",
     "src/enginesmith/platforms/linux_rocm.py",
     "src/enginesmith/platforms/macos.py",
+    "src/enginesmith/platforms/neuron.py",
 ]
 
 [vendored]
@@ -71,3 +73,15 @@ changes = """Adds the reference on AMD Instinct GPUs: stock SGLang (sglang.Engin
 greedy, ignore_eos, the model's context), its radix cache flushed on every reset request, a continuation sent as the \
 whole history; judge replays a case's two requests (generate(P, 1), then a continuation) with a custom logit \
 processor that measures each row before forcing the token. The rules for Apple Silicon are unchanged."""
+
+[[versions]]
+version = 3
+date = "2026-11-05"
+fingerprint = "0e8c51e461177e48a0d586a77e316299077d2c208ba108098d061dc7ef759be8"
+changes = """Adds the reference on AWS Trainium: stock NxD Inference (neuronx-distributed-inference) driven the way its \
+HuggingFaceGenerationAdapter generates (the whole prompt in one context-encoding call padded to its bucket, then one \
+token-generation call per token; bf16, fused QKV, async mode, on-device greedy sampling), on one logical NeuronCore \
+or tensor parallel across several ([reference] tensor_parallel); judge teacher-forces in a worker process on a second \
+compilation that returns logits. On Trainium the engine sees exactly the NeuronCores the reference generates on (its \
+tensor-parallel degree N); the reference sees those and the next N, where it judges. The rules for Apple Silicon and \
+AMD are unchanged."""

@@ -23,8 +23,10 @@ LOCK = '/tmp/engine-gpu.lock'
 
 
 @contextmanager
-def gpu_lock(path: str = LOCK):
-    """The GPU lock the skill's scripts share; skipped under gpu_lock.py, which already holds it."""
+def gpu_lock(path: str | None = None):
+    """The GPU lock the skill's scripts share (GPU_LOCK_FILE, else LOCK: runs that share a machine on separate
+    accelerator cores give each its own); skipped under gpu_lock.py, which already holds it."""
+    path = path or os.environ.get('GPU_LOCK_FILE') or LOCK
     if os.environ.get('GPU_LOCK_HELD'):
         yield
         return
@@ -84,7 +86,7 @@ def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None) -
     controls = Path(info['brief']) / 'reference-controls.json'
     evaluator = Evaluator(info['reference'], [str(executable), '--model', str(task.model)], plan,
                           directory, registry=Registry(info['registry']), log=lambda m: print(m, flush=True),
-                          reference_controls=controls)
+                          reference_controls=controls, engine_cores=task.reference_tp)
     started = time.time()
     with gpu_lock():
         try:

@@ -8,7 +8,7 @@ downloads the same model files, which verify checks by SHA-256), and no host pat
 a build embeds paths of the machine it was built on, such as the home directory.
 
 verify builds the engine from the package's source (it runs the shared binary only when asked) and evaluates it
-against the local reference (the run's, e.g. mlx-lm or SGLang) with the formal evaluation's procedure, on fresh prompts, on this machine.
+against the local reference (the run's, e.g. mlx-lm, SGLang or NxD Inference) with the formal evaluation's procedure, on fresh prompts, on this machine.
 """
 from __future__ import annotations
 
@@ -97,7 +97,8 @@ def describe(run, label: str) -> dict:
                   'vocab_size': t.vocab_size, 'files': model_files(t.model)},
         'machine': s.get('machine') or machine(),
         'harness': {'version': __version__, 'digest': s['harness'], 'evaluation_version': s.get('evaluation_version'),
-                    **_reference(s, t)},
+                    **_reference(s, t), 'reference_tp': t.reference_tp,
+                    'reference_max_length': t.max_request_length()},
         'settings': {'lengths': list(t.lengths), 'output_tokens': t.output_tokens, 'controls': t.controls,
                      'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
                                    'length_weights': {str(k): v for k, v in t.objective.length_weights.items()}},
@@ -162,7 +163,9 @@ def readme(info: dict, repository: str | None = None) -> str:
              '', f'- Machine: {mc["accelerator"] or mc["chip"]}'
                  + (f', {mc["accelerator_cores"]} cores' if mc['accelerator_cores'] else '')
                  + f', {(mc["memory_bytes"] or 0) / 2**30:.0f} GiB, {mc["os"]}',
-             f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip(),
+             f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip()
+             + (f', tensor-parallel degree {info["harness"]["reference_tp"]} (the engine gets as many accelerator '
+                'cores)' if (info['harness'].get('reference_tp') or 1) > 1 else ''),
              f'- Judged under evaluation version {info["harness"]["evaluation_version"] or "(unrecorded)"}',
              f'- Decode: {decode_rule(info["engine"].get("one_forward_per_token"))}',
              *([f'- Source{", binary" if info["engine"].get("binary") else ""} and data: {repository}']
@@ -467,15 +470,18 @@ def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths
         current().DEFAULT_REFERENCE
     if reference is None and kind is None:
         raise ValueError('no reference for this package on this platform')
-    reference = reference or references.command(kind, model)
+    tp = info['harness'].get('reference_tp', 1)
+    max_length = info['harness'].get('reference_max_length') or max(c.length for c in cases) + s['output_tokens']
+    reference = reference or references.command(kind, model, max_length, tp)
     registry = Registry(work / 'engines')
     with Watchdog([registry]):
         result = Evaluator(reference, [str(executable), '--model', str(model)], plan, work / 'evaluation',
-                           registry=registry, log=log).run()
+                           registry=registry, log=log, engine_cores=tp).run()
         log('decode probe: one request against one token per request')
         try:
             probe = decode_probe.run([str(executable), '--model', str(model)], vocab, min(chosen),
-                                     max(s['output_tokens'] - 1, 2), work / 'decode-probe', registry)
+                                     max(s['output_tokens'] - 1, 2), work / 'decode-probe', registry,
+                                     engine_cores=tp)
         except Exception as exc:  # report-only
             probe = {'error': f'{type(exc).__name__}: {exc}'[:2000]}
     summary = {'package': info['name'], 'machine': machine(), 'passed': result['passed'], 'failure': result['failure'],

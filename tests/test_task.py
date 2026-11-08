@@ -127,3 +127,11 @@ def test_a_run_from_before_the_rule_stays_unrecorded(tmp_path, model_dir, monkey
     del frozen['one_forward_per_token']
     task = Task.from_json(frozen)
     assert task.one_forward_per_token is None and 'not recorded' in decode_rule(task.one_forward_per_token)
+
+
+def test_ordinary_agent_flags_are_not_credentials(tmp_path, model_dir):
+    path = tmp_path / 'task.toml'
+    path.write_text(f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "command"\ncommand = '
+                    '["codex", "exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", '
+                    '"{prompt}"]\n')
+    assert load_task(path).agent_command[2] == '--skip-git-repo-check'

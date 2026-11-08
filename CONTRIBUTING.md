@@ -61,7 +61,7 @@ about, share it, and check other people's engines on your machine.
 | A worked example for a model family | open | `skills/specialized-inference-engine/examples/<model>/` | Qwen3.5 (gated DeltaNet and full attention) from a finished run: model card, decode map, optimization log |
 | A whole skill | open | `skills/<name>/`, used through `engine.skill` | a skill for engines in C++ and Metal, or one specialized in long-context prefill |
 | Another coding agent | core (its entries only) | `src/enginesmith/agents.py` and the docs | Gemini CLI, Qwen Code, OpenCode |
-| Another platform | open, plus a reference in judging | `platforms/<name>.py`, `references/<name>.py`, a skill backend | Linux with NVIDIA GPUs and vLLM as the reference; AMD GPUs with ROCm |
+| Another platform | open, plus a reference in judging | `platforms/<name>.py`, `references/<name>.py`, a skill backend | Linux with NVIDIA GPUs and vLLM as the reference |
 | Another reference on a supported platform | judging | `src/enginesmith/references/<name>.py` | llama.cpp's Metal backend as a second reference on Apple Silicon |
 | A fix or a feature | core | `src/enginesmith/` | a bug fix; another accuracy benchmark next to MATH-500 and IFEval |
 | A change to the judging rules | judging | an issue first | gates that reject a correct engine on some model family, with the evidence |
@@ -78,12 +78,12 @@ described in the README ("Share an engine, check someone else's").
 | `protocol.py` | the engine protocol client and its timing (`docs/protocol.md`) | judging |
 | `evaluate.py` | controls, paired AB/BA rounds, teacher-forced judging, gates, speedups, `EVALUATION_VERSION` | judging |
 | `acceptance.py` | the score and the acceptance rules | judging |
-| `references/<name>.py` | a reference implementation behind the engine protocol (today `mlx_lm.py`) | judging |
+| `references/<name>.py` | a reference implementation behind the engine protocol (today `mlx_lm.py`, `sglang.py`, `nxdi.py`) | judging |
 | `task.py` | the task file schema (`docs/task.md`); its `Gates`, `Acceptance` and `Evaluation` defaults count as judging | core |
 | `run.py`, `engine_repo.py`, `agents.py`, `brief.py`, `processes.py` | rounds, snapshots and builds, sessions, the session brief, processes and the watchdog | core |
 | `cli.py`, `setup_tools.py`, `dev_eval.py`, `explain.py`, `report.py`, `share.py`, `quality.py` | the commands | core |
 | `platforms/__init__.py`, `references/__init__.py` | the platform interface and the registry of references | core |
-| `platforms/<name>.py` | one platform: machine facts, checks, memory budget and watchdog, sleep inhibition, the native-executable check, the default reference (today `macos.py`, `generic.py`) | open |
+| `platforms/<name>.py` | one platform: machine facts, checks, memory budget and watchdog, sleep inhibition, the native-executable check, the default reference (today `macos.py`, `linux_rocm.py`, `neuron.py`, `generic.py`) | open |
 | `third_party/` | Google's IFEval checker, unmodified | vendored |
 
 The modules are under `src/enginesmith/`. A new platform touches only the open zone, plus a reference if it brings
@@ -99,8 +99,9 @@ this order; each has its own checks.
 
 Start from a copy of `platforms/generic.py`, which is the smallest complete implementation, and read the interface in
 `platforms/__init__.py`. Then add the module to `PLATFORMS` there, before `generic`, and list it under `[open]` in
-`zones.toml`. `platforms/linux_rocm.py` (Linux with an AMD GPU) is a complete example for a discrete GPU. Every
-module must define:
+`zones.toml`. `platforms/linux_rocm.py` (Linux with an AMD GPU) is a complete example for a discrete GPU, and
+`platforms/neuron.py` (AWS Trainium) one for an accelerator whose cores are shared between runs
+(`engine_environment()`). Every module must define:
 
 | name | contract | NVIDIA hint (not implemented, not measured) |
 |---|---|---|

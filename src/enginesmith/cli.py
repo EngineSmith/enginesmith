@@ -109,7 +109,7 @@ def main(argv=None) -> int:
     p.add_argument('--license', choices=('MIT', 'Apache-2.0', 'none'), default='MIT',
                    help="the engine's license, under your name (default: MIT)")
     p.add_argument('--private', action='store_true', help='make the repository private (the post is still made)')
-    p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local mlx-lm')
+    p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local reference')
     p.add_argument('package', help="a package directory, its zip, or its repository's URL")
     p.add_argument('--model', type=Path, required=True, help='the model directory (the same files as the package\'s)')
     p.add_argument('--lengths', help='comma-separated prompt lengths (default: the package\'s)')
