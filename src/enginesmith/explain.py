@@ -202,7 +202,8 @@ def explain(task: Task) -> str:
     out += ['| generate | no candidate yet | ' + ('the seed' if task.seed else 'an empty project') + ' |',
             '| repair | no candidate has passed yet | the latest candidate, with its failure as facts |',
             '| optimize | a best engine exists | the best engine, with the rejected candidates since as facts |', '',
-            'A candidate whose source equals its starting point is rejected as unchanged without an evaluation. '
+            'A candidate whose source equals its starting point is rejected as unchanged without an evaluation, and '
+            'one whose source equals an earlier rejected candidate\'s as a repeat of it. '
             'A rejected optimization is not continued: the next session starts from the best engine again, knowing '
             'what was tried and why it was rejected.', '']
 

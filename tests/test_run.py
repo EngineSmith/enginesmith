@@ -68,6 +68,14 @@ def test_an_unchanged_or_slower_candidate_is_rejected(make_run):
     assert facts['incumbent'] == '001'
 
 
+def test_a_rejected_candidate_resubmitted_is_refused_without_an_evaluation(make_run):
+    run = make_run({'001': ['--speed', '2'], '002': ['--speed', '1'], '003': {'restore': '002'}})
+    run.drive()
+    assert outcomes(run) == [('001', 'generate', 'first_passing_candidate'),
+                             ('002', 'optimize', 'insufficient_improvement'), ('003', 'optimize', 'repeat_of_rejected')]
+    assert run.record('003')['repeats'] == '002' and 'evaluation' not in run.record('003')
+
+
 def test_the_seed_is_evaluated_first(make_run, tmp_path):
     seed = tmp_path / 'seed'
     seed.mkdir()

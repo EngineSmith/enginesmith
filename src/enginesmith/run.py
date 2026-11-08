@@ -337,12 +337,21 @@ class Run:
                                    'passed': sum(1 for path in checks if (read_json(path) or {}).get('passed'))}
             engine_repo.remove_worktree(self.repo, work / 'engine')
             shutil.rmtree(work, ignore_errors=True)
-        unchanged = (record['snapshot'] and record['kind'] != 'seed'
-                     and engine_repo.git('rev-parse', f'{record["snapshot"]}^{{tree}}', cwd=self.repo)
-                     == engine_repo.git('rev-parse', f'{record["base"]}^{{tree}}', cwd=self.repo))
-        if unchanged:
-            record['unchanged'] = True
-        record['step'] = 'build' if record['snapshot'] and not unchanged else 'decide'
+        if record['snapshot'] and record['kind'] != 'seed':
+            tree = lambda commit: engine_repo.git('rev-parse', f'{commit}^{{tree}}', cwd=self.repo)
+            source = tree(record['snapshot'])
+            if source == tree(record['base']):
+                record['unchanged'] = True
+            else:
+                # The source of a rejected candidate: evaluating it again would only draw the timing noise again.
+                earlier = ((r['label'], self.record(r['label']) or {}) for r in self.state['rounds']
+                           if not r['accepted'] and r['reason'] != 'stopped')
+                repeated = next((label for label, e in earlier if e.get('snapshot') and tree(e['snapshot']) == source),
+                                None)
+                if repeated:
+                    record['repeats'] = repeated
+        refused = record.get('unchanged') or record.get('repeats')
+        record['step'] = 'build' if record['snapshot'] and not refused else 'decide'
 
     def _build(self, record: dict) -> None:
         directory = self.round_dir(record['label'])
@@ -408,6 +417,8 @@ class Run:
         result = self.evaluation(label) if (record.get('evaluation') or {}).get('passed') else None
         if record.get('unchanged'):
             decision = acceptance.Decision(False, 'unchanged')
+        elif record.get('repeats'):
+            decision = acceptance.Decision(False, 'repeat_of_rejected')
         elif record.get('stopped'):
             decision = acceptance.Decision(False, 'stopped')
         elif result is None:
@@ -456,6 +467,8 @@ class Run:
                     text = f'score {d["score_gain"] * 100:+.2f}%, {text}'
                 if d.get('best_case'):
                     text += f', best case {d["best_case"][0]} {d["best_case"][1]} {d["best_case"][2] * 100:+.2f}%'
+                if past.get('repeats'):
+                    text = f'the same source as round {past["repeats"]}'
                 lines.append(f'- round {r["label"]}: {r["reason"]}' + (f' ({text})' if text else ''))
                 if r['reason'] == 'failed':
                     lines.append('  ' + brief.failure_text(past).replace('\n', '\n  '))

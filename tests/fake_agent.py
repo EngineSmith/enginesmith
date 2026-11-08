@@ -2,8 +2,9 @@
 """A scripted coding agent for the run tests.
 
 FAKE_AGENT_PLAN (JSON) maps a round label to an action: a list of fake_engine.py flags (write engine/engine with
-them), "same" (change nothing), "sleep" (sleep until stopped), or {"flags": [...], "dev_eval": [...]} (write the
-engine, then run `enginesmith dev-eval` with those arguments and keep its output in engine/dev-eval.txt).
+them), "same" (change nothing), "sleep" (sleep until stopped), {"restore": "NNN"} (put back the source of round
+NNN), or {"flags": [...], "dev_eval": [...]} (write the engine, then run `enginesmith dev-eval` with those arguments
+and keep its output in engine/dev-eval.txt).
 """
 import json
 import os
@@ -24,6 +25,9 @@ def main():
     if action == 'sleep':
         time.sleep(600)
     if action == 'same':
+        return
+    if isinstance(action, dict) and 'restore' in action:
+        subprocess.run(['git', 'checkout', f'refs/rounds/{action["restore"]}', '--', '.'], cwd=engine, check=True)
         return
     flags = action['flags'] if isinstance(action, dict) else action
     script = engine / 'engine'

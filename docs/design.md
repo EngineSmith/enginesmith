@@ -46,7 +46,8 @@ cannot change without a new version (CONTRIBUTING.md, "Zones").
 A round records its progress in `rounds/NNN/round.json` after every step (session, snapshot, build, evaluate,
 decide). `enginesmith resume` continues from there: an interrupted session is not restarted (its engine directory
 is taken as it is), an interrupted evaluation is run again. A candidate whose source is identical to its starting
-point is rejected as `unchanged` without an evaluation.
+point is rejected as `unchanged` without an evaluation, and one whose source is identical to an earlier rejected
+candidate's as `repeat_of_rejected`: evaluating it again could only pass on timing noise.
 
 ## Sessions
 
