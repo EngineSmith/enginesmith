@@ -112,9 +112,10 @@ def engine_environment(engine_cores: int | None = None) -> dict:
     if not base.isdigit() or not count.isdigit() or int(count) < 1:
         raise ValueError(f'ENGINESMITH_NEURON_CORE and ENGINESMITH_NEURON_CORES must be numbers, not {base!r}, '
                          f'{count!r}')
-    if engine_cores and engine_cores > int(count):
-        raise ValueError(f'the engine needs {engine_cores} NeuronCores but ENGINESMITH_NEURON_CORES is {count}; give '
-                         f'the run twice the reference\'s tensor-parallel degree')
+    if engine_cores and 2 * engine_cores > int(count):
+        # The reference judges on the N cores after the engine's; with fewer it would take another run's.
+        raise ValueError(f'the run needs {2 * engine_cores} NeuronCores (twice the reference\'s tensor-parallel degree '
+                         f'{engine_cores}) but ENGINESMITH_NEURON_CORES is {count}')
     first = int(base)
     last = first + (engine_cores or int(count)) - 1
     return {'NEURON_RT_VISIBLE_CORES': f'{first}-{last}' if last > first else str(first)}

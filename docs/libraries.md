@@ -121,7 +121,11 @@ libnrt: an executable that does not link it computes the model on the host CPU.
 
 The NKI compiler (`neuronx-cc`) runs at build time only: it compiles the engine's own kernel source to NEFF files,
 which the executable embeds. The kernels are the engine's source; kernels copied from the open-source NKI library
-become the engine's own, as for copied source anywhere ("Code compiled into the executable").
+become the engine's own, as for copied source anywhere ("Code compiled into the executable"). The same compiler
+also compiles whole model graphs (from torch-neuronx, NxD Inference or JAX), and a NEFF made that way would pass the
+check, since the executable still links only libnrt; it is refused all the same, like a NEFF taken from the
+reference's compile cache: every NEFF is compiled from the engine's own kernel source in the clean build. The build
+script, published with the source, shows which it is.
 
 ## Code compiled into the executable
 

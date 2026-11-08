@@ -159,6 +159,10 @@ def test_the_neuron_platform_gives_engines_the_run_cores(monkeypatch, tmp_path):
     from enginesmith import protocol
     assert protocol.engine_environment(tmp_path)['NEURON_RT_VISIBLE_CORES'] == '8-9'
     assert protocol.engine_environment(tmp_path, engine_cores=1)['NEURON_RT_VISIBLE_CORES'] == '8'
+    with pytest.raises(ValueError, match='needs 4 NeuronCores'):  # tensor parallel 2 needs 2 x 2 cores, the run has 2
+        neuron.engine_environment(2)
+    monkeypatch.setenv('ENGINESMITH_NEURON_CORES', '4')
+    assert neuron.engine_environment(2) == {'NEURON_RT_VISIBLE_CORES': '8-9'}
     monkeypatch.setenv('ENGINESMITH_NEURON_CORE', 'x')
     with pytest.raises(ValueError):
         neuron.engine_environment()
