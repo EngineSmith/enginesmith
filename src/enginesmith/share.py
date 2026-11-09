@@ -67,8 +67,9 @@ def model_revision(model: Path) -> str | None:
         return None
 
 
-def machine() -> dict:
-    facts = current().machine()
+def machine(facts: dict | None = None) -> dict:
+    """The machine's public facts (the run's record also holds tool paths, which name the home directory)."""
+    facts = facts or current().machine()
     return {key: facts.get(key) for key in ('platform', 'os', 'chip', 'accelerator', 'accelerator_cores',
                                             'memory_bytes')}
 
@@ -98,7 +99,7 @@ def describe(run, label: str) -> dict:
                    'one_forward_per_token': t.one_forward_per_token},
         'model': {'name': t.model.name, 'source': t.model_source, 'revision': model_revision(t.model),
                   'vocab_size': t.vocab_size, 'files': model_files(t.model)},
-        'machine': s.get('machine') or machine(),
+        'machine': machine(s.get('machine')),
         'harness': {'version': __version__, 'digest': s['harness'], 'evaluation_version': s.get('evaluation_version'),
                     **_reference(s, t), 'reference_tp': t.reference_tp,
                     'reference_max_length': t.max_request_length()},

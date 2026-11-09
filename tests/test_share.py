@@ -58,6 +58,13 @@ def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model
         verify(package, model_dir, out=tmp_path / 'check', use_binary=True, log=lambda m: None)
 
 
+def test_the_package_keeps_only_the_machine_s_public_facts(finished_run, tmp_path):
+    finished_run.state['machine'] = {'chip': 'M', 'cargo': '/Users/someone/.cargo/bin/cargo'}
+    share(finished_run, out=tmp_path / 'out')
+    text = (tmp_path / 'out' / 'test-task-round001' / 'enginesmith.json').read_text()
+    assert '/Users/someone' not in text and json.loads(text)['machine']['chip'] == 'M'
+
+
 def test_verify_builds_the_shared_source_and_evaluates_it_here(finished_run, tmp_path, model_dir):
     shared = share(finished_run, out=tmp_path / 'out')
     result = verify(tmp_path / 'out' / 'test-task-round001.zip', model_dir, out=tmp_path / 'check',
