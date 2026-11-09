@@ -182,6 +182,10 @@ def main(argv=None) -> int:
                 if (run.state['phase'] == 'final' and run.state['search_end'] in ('stopped', 'agent_failed')
                         and not run.state['final']):
                     run.state.update(phase='search', search_end=None)
+                    # A final that had started is void: the best engine may change, and its held-out seed must be
+                    # drawn after the last session. Its files stay with the run.
+                    if (run.dir / 'final').exists():
+                        (run.dir / 'final').rename(run.dir / f'final.superseded-{time.strftime("%Y%m%d-%H%M%S")}')
                 run.save()
             elif run.stop_mode() == 'abort':
                 (run.dir / 'STOP').write_text('finish')

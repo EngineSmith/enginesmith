@@ -174,7 +174,8 @@ under `refs/rounds/NNN` in `engine.git`) and listed in the next sessions' facts.
 
 After the search, the best engine is evaluated once more with `final_rounds` rounds on windows from the held-out
 range, drawn from a seed created at that moment and recorded in `final/final.json`. Its result is the run's
-reported result; it never feeds back into the search.
+reported result; it never feeds back into the search. A final that `enginesmith resume --continue-search` gives up is moved to
+`final.superseded-TIME/`; the next one draws a new seed for the best engine at that point.
 
 ## Task accuracy
 
