@@ -124,6 +124,26 @@ def test_stop_ends_the_search_and_continue_search_resumes_it(make_run, capsys):
     assert status['best']['round'] == '001' and not status['driver_running'] and 'share' in status['next']
 
 
+def test_continue_search_voids_a_final_that_had_started(make_run):
+    run = make_run({'001': ['--speed', '1'], '002': ['--speed', '2']}, budget={'sessions': 2})
+    run.session_registries = [run.registry]
+    while not run.state['rounds']:
+        run._step()
+    # The search was stopped and the final had started on round 001, with a seed drawn before round 002's session.
+    run.state.update(phase='final', search_end='stopped')
+    run.save()
+    (run.dir / 'final').mkdir()
+    (run.dir / 'final' / 'final.json').write_text(json.dumps({'round': '001', 'seed': '00' * 32, 'started': 0.0}))
+    cli.main(['resume', str(run.dir), '--continue-search'])
+    run = Run(run.dir)
+    assert run.state['incumbent'] == '002' and run.state['final']['round'] == '002'
+    final = json.loads((run.dir / 'final' / 'final.json').read_text())
+    assert final['round'] == '002' and final['seed'] != '00' * 32
+    # The final that was given up stays with the run.
+    [kept] = run.dir.glob('final.superseded-*')
+    assert json.loads((kept / 'final.json').read_text())['round'] == '001'
+
+
 def test_dev_eval_inside_a_session(make_run):
     run = make_run({'001': {'flags': ['--speed', '2'], 'dev_eval': ['--no-build', '--lengths', '64']}},
                    budget={'sessions': 1}, workload={'controls': True})
