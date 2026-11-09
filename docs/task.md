@@ -11,8 +11,11 @@ copies the resolved task into `RUN/task.json` when it starts; nothing changes it
 | `card` | none | the model card every session reads (`brief/model-card.md`) |
 | `source` | none | the Hugging Face repository the model came from, e.g. `mlx-community/Qwen3-0.6B-4bit`; `enginesmith share` records it |
 | **[reference]** | | |
-| `kind` | the platform's default (`mlx-lm` on Apple Silicon, `nxdi` on AWS Trainium) | a reference of `src/enginesmith/references` |
+| `kind` | the platform's default (`mlx-lm` on Apple Silicon, `nxdi` on AWS Trainium) | a reference of `src/enginesmith/references`; `transformers-cpu` is stock transformers on the host CPU, a correctness-only reference for models the platform's own reference cannot run |
 | `command` | none | argv of another reference engine instead of `kind`; it must also answer `judge` (docs/protocol.md) |
+| `correctness_only` | true for `transformers-cpu`, else false | the reference decides what is correct but is no speed baseline: nothing reports a speedup, and the score is the fraction of the hardware bound (below). Use it only when no framework runs the model correctly on this platform |
+| `frameworks` | required with `correctness_only`, else not allowed | the frameworks tried on this platform and how each failed, as free text; the plan, the report and the shared README show it |
+| `tensor_parallel` | 1 | the reference's tensor-parallel degree (`nxdi`), which is also the number of accelerator cores the engine gets; with a correctness-only reference, only the engine's cores |
 | **[engine]** | | |
 | `seed` | none | a directory with engine source to start from (copied without `.git` and `target/`) |
 | `evaluate_seed` | true when `seed` is set | evaluate the seed before the first session; if it passes, it is the first best engine |
@@ -64,7 +67,30 @@ Durations are seconds (a number) or strings such as `"90s"`, `"45m"` and `"2h"`.
 
 For each timed case and segment, the speedup is the median over the rounds of reference time / candidate time. The
 score is their weighted geometric mean: case weight (`length_weights`) times segment weight (`prefill`,
-`decode`). The segment means use the case weights only.
+`decode`). The segment means use the case weights only. With a correctness-only reference the fractions of the
+hardware bound (below) take the speedups' place.
+
+## The hardware bound
+
+`src/enginesmith/bound.py` estimates the least time this machine needs for each timed request, from the checkpoint and
+the platform's figures (`peak()` of the platform module, each figure with its source; for Trainium2, 725 GB/s and
+about 167 dense BF16 TFLOPS per logical NeuronCore, times the cores the engine gets):
+
+- decode: bytes read per generated token / memory bandwidth: every weight tensor of the safetensors headers (the
+  input embedding only when it is also the output head) plus the KV cache at that position (per layer K and V, KV
+  heads x `head_dim` x the bytes of the config's dtype, at most the window of a sliding-window layer);
+- prefill: FLOPs / peak compute: 2 x parameters x prompt tokens, the output head for the last token only, and the
+  causal attention's 4 x heads x `head_dim` per (query, key) pair.
+
+The fraction of the bound is bound time / engine time, the median over the rounds. It is computed for dense models
+only; a mixture-of-experts or hybrid model, a quantized checkpoint (prefill), or a platform without figures gets "not
+computed" and the reason. The report and the shared README show the fraction next to every case's speedup; it is an
+estimate and not scored.
+
+With a correctness-only reference it is the score: the weighted geometric mean of the fractions, with the same
+weights as the speedups. Where the bound is not computed a nominal 1 ms per prefill request and per decode token
+stands in, so the score stays a consistent relative measure (reported as "not computed"). The acceptance rules are
+unchanged: they compare two candidates case by case, so each case's bound cancels.
 
 ## Budget
 

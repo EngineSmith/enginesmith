@@ -107,7 +107,8 @@ uv run enginesmith status tasks/NAME/runs/RUN
    ranking it may be.
 3. **Speed.** Reference and candidate alternate in paired rounds (AB, BA, ...) on prompts drawn fresh for every
    request. Each case times a prefill request and a decode request. The score is the weighted geometric mean of
-   the speedups, weighted the way you asked.
+   the speedups, weighted the way you asked. The report also shows each case's fraction of the hardware bound
+   (memory bandwidth for decode, peak compute for prefill; dense models).
 4. **Acceptance.** A correct candidate replaces the best engine only when it is faster by more than the timing
    noise. Rejected candidates and their reasons go to the next sessions as facts.
 5. **Final.** After the last session, the best engine is evaluated on held-out prompts drawn from a seed created
@@ -120,8 +121,10 @@ uv run enginesmith status tasks/NAME/runs/RUN
 
 The workload is raw token ids from a public formula, from 1 to 524,288 tokens, so it serves any model without a
 tokenizer. The reference is the platform's stock library (mlx-lm on Apple Silicon, SGLang on AMD, NxD Inference on
-Trainium), so a new model needs no framework code. [docs/design.md](docs/design.md)
-has the details.
+Trainium), so a new model needs no framework code. For a model no framework runs correctly on the platform, a task
+can judge against stock transformers on the CPU instead (`[reference] kind = "transformers-cpu"`), a correctness-only
+reference: nothing reports a speedup, and the score is the fraction of the hardware bound
+([docs/task.md](docs/task.md)). [docs/design.md](docs/design.md) has the details.
 
 ## Roadmap
 
@@ -137,12 +140,10 @@ Not implemented yet; each item has an issue for the design.
 - **Speculative decoding as part of the model.** A task that declares the algorithm and its draft weights, with the
   reference running the same, timed on real text ([#3](https://github.com/EngineSmith/enginesmith/issues/3)).
 - **Judging.** A timed workload agents cannot learn ([#12](https://github.com/EngineSmith/enginesmith/issues/12)).
-- **Distance to the hardware bound.** Each report shows how close the engine runs to its memory-bandwidth floor
-  (decode) and compute floor (prefill), dense models first
+- **The hardware bound of MoE and hybrid models.** The report shows how close an engine runs to its
+  memory-bandwidth floor (decode) and compute floor (prefill) for dense models; mixture-of-experts and hybrid models
+  are "not computed" until a model-agnostic way to know which weights a token reads exists
   ([#16](https://github.com/EngineSmith/enginesmith/issues/16)).
-- **Models no framework runs on a platform.** Correctness judged against a CPU computation of the checkpoint, and
-  speed reported without a reference to time against
-  ([#15](https://github.com/EngineSmith/enginesmith/issues/15)).
 - **More platforms.** NVIDIA GPUs plug in the same way ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Share an engine, check someone else's

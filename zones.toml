@@ -8,12 +8,14 @@
 # [[versions]] entry below and EVALUATION_VERSION in src/enginesmith/evaluate.py set to it.
 files = [
     "src/enginesmith/acceptance.py",          # the score and the acceptance rules
+    "src/enginesmith/bound.py",               # the hardware bound: the score with a correctness-only reference
     "src/enginesmith/evaluate.py",            # controls, paired rounds, teacher-forced judging, gates, timeouts
     "src/enginesmith/protocol.py",            # the engine protocol and its timing
     "src/enginesmith/workload.py",            # the Lily prompts and the public, held-out and nonce ranges
     "src/enginesmith/references/mlx_lm.py",   # the reference on Apple Silicon
     "src/enginesmith/references/sglang.py",   # the reference on AMD Instinct GPUs
     "src/enginesmith/references/nxdi.py",     # the reference on AWS Trainium
+    "src/enginesmith/references/transformers_cpu.py",  # a correctness-only reference on the host CPU
 ]
 
 [core]
@@ -85,3 +87,14 @@ or tensor parallel across several ([reference] tensor_parallel); judge teacher-f
 compilation that returns logits. On Trainium the engine sees exactly the NeuronCores the reference generates on (its \
 tensor-parallel degree N); the reference sees those and the next N, where it judges. The rules for Apple Silicon and \
 AMD are unchanged."""
+
+[[versions]]
+version = 4
+date = "2026-11-09"
+fingerprint = "b86ed0705f51e205762d2937858ecaae71d9050a8636fc735439a6fbb88098fe"
+changes = """Adds a correctness-only reference for models no framework runs correctly on a platform: stock transformers on \
+the host CPU in bf16 (transformers_cpu; generate is model.generate, judge teacher-forces through it), and lets a \
+custom reference command declare itself correctness-only; such a task reports no speedup and scores the weighted \
+geometric mean of the fractions of the hardware bound (bound.py: weight and KV bytes over memory bandwidth for decode, \
+FLOPs over peak compute for prefill, dense models only, a nominal bound otherwise). Every other task is judged as \
+before."""

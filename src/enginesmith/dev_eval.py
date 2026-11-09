@@ -12,7 +12,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from enginesmith import engine_repo
+from enginesmith import bound, engine_repo
 from enginesmith.brief import case_table, failure_text
 from enginesmith.evaluate import Evaluator, Plan, ReferenceFailed
 from enginesmith.platforms import current
@@ -82,7 +82,9 @@ def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None) -
         print(f'--lengths must name some of the task lengths: {", ".join(map(str, task.lengths))}')
         return 1
     plan = Plan(cases, task.vocab_size, rounds, task.evaluation.warmup,
-                task.evaluation.cooldown_s if cooldown is None else cooldown, task.gates, task.objective, 'public')
+                task.evaluation.cooldown_s if cooldown is None else cooldown, task.gates, task.objective, 'public',
+                b'', task.correctness_only,
+                bound.bounds(task.model, chosen, task.output_tokens, task.reference_tp)['cases'])
     controls = Path(info['brief']) / 'reference-controls.json'
     evaluator = Evaluator(info['reference'], [str(executable), '--model', str(task.model)], plan,
                           directory, registry=Registry(info['registry']), log=lambda m: print(m, flush=True),

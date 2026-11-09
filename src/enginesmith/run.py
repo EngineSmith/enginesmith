@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 
-from enginesmith import acceptance, agents, brief, engine_repo, references, report
+from enginesmith import acceptance, agents, bound, brief, engine_repo, references, report
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan, ReferenceFailed, Stopped, rows
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog, kill_group
@@ -368,7 +368,8 @@ class Run:
     def plan(self, rounds: int, windows: str, seed: bytes) -> Plan:
         t = self.task
         return Plan(tuple(t.cases()), t.vocab_size, rounds, t.evaluation.warmup, t.evaluation.cooldown_s, t.gates,
-                    t.objective, windows, seed)
+                    t.objective, windows, seed, t.correctness_only,
+                    bound.bounds(t.model, t.lengths, t.output_tokens, t.reference_tp)['cases'])
 
     def _evaluator(self, engine: Path, plan: Plan, directory: Path, stop) -> Evaluator:
         if harness_digest() != self.state['harness']:
@@ -450,7 +451,9 @@ class Run:
             best = self.evaluation(s['incumbent'])
             lines += [f'## The current best engine: round {s["incumbent"]}', '',
                       f'Score {best["score"]:.4f}; prefill mean {best["segments"]["prefill"]:.4f}, decode mean '
-                      f'{best["segments"]["decode"]:.4f} (speedups over the reference).', '', brief.case_table(best),
+                      f'{best["segments"]["decode"]:.4f} ('
+                      + ('fractions of the hardware bound' if self.task.correctness_only else
+                         'speedups over the reference') + ').', '', brief.case_table(best),
                       '']
         if record['kind'] == 'repair':
             lines += [f'## Round {record["base_round"]} (the candidate in engine/) failed', '',

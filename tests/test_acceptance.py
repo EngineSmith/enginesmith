@@ -61,3 +61,19 @@ def test_the_case_rule_and_unweighted_segments():
 def test_zero_turns_a_rule_off():
     old = result((1, 1))
     assert not decide(old, result((1.5, 1.5)), BALANCED, Acceptance(0, 0, 0, 0.01)).accepted
+
+
+def test_a_constant_per_case_and_segment_cancels_in_the_decisions():
+    # A correctness-only task's rows are bound time / engine time: the bounds are such constants.
+    bounds = ((3.0, 0.2), (40.0, 7.5))
+
+    def scaled(r):
+        rows = tuple((i, n, p * b[0], d * b[1]) for (i, n, p, d), b in zip(r.rows, bounds))
+        return Result(r.passed, score(rows, BALANCED), rows)
+    old = result((1, 1), (1, 1))
+    for candidate in (result((1.02, 1.02), (1.02, 1.02)), result((1.02, 0.995), (1.02, 0.995)),
+                      result((1, 1.05), (1, 0.995)), result((1.005, 1.005), (1.005, 1.005))):
+        plain, other = decide(old, candidate, BALANCED, RULES), decide(scaled(old), scaled(candidate), BALANCED, RULES)
+        assert (plain.accepted, plain.reason) == (other.accepted, other.reason)
+        assert plain.score_gain == pytest.approx(other.score_gain) and plain.best_case[2] == pytest.approx(
+            other.best_case[2])

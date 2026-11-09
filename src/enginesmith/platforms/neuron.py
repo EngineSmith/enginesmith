@@ -22,6 +22,11 @@ ALLOWED = {'libc', 'libm', 'libdl', 'libpthread', 'librt', 'libutil', 'libgcc_s'
 REFUSED = ('libpython', 'libtorch', 'libc10', 'libneuronxla', 'libxla', 'libjax', 'libvllm', 'libtensorflow',
            'libonnxruntime', 'libggml', 'libllama')
 
+# Trainium2 per chip, from the public Neuron documentation (https://awsdocs-neuron.readthedocs-hosted.com/en/latest/
+# about-neuron/arch/neuron-hardware/trainium2.html): 2.9 TB/s of HBM bandwidth and 667 dense BF16 TFLOPS, over 8
+# physical NeuronCores. A logical NeuronCore at the default LNC=2 has a quarter: 725 GB/s and about 167 TFLOPS.
+TRN2_CHIP = {'bandwidth': 2.9e12, 'compute': 667e12, 'physical_cores': 8}
+
 
 def _run(argv, timeout=20) -> str | None:
     try:
@@ -122,6 +127,18 @@ def engine_environment(engine_cores: int | None = None) -> dict:
 
 
 BUSY = (b'Failed to initialize NRT runtime', b'cores busy', b'Logical Neuron Core(s) not available')
+
+
+def peak(cores: int = 1) -> dict | None:
+    """Trainium2's memory bandwidth (bytes/s) and dense BF16 compute (FLOP/s) for cores logical NeuronCores."""
+    first = next(iter(_neuron_ls()), {})
+    if not str(first.get('instance_type') or '').startswith('trn2'):
+        return None
+    lnc = first.get('logical_neuroncore_config') or 2
+    share = cores * lnc / TRN2_CHIP['physical_cores']
+    return {'bandwidth': TRN2_CHIP['bandwidth'] * share, 'compute': TRN2_CHIP['compute'] * share,
+            'source': f'Trainium2 vendor figures (Neuron documentation): 2.9 TB/s and 667 dense BF16 TFLOPS per chip '
+                      f'of 8 physical NeuronCores, here {cores} logical core(s) at LNC={lnc}'}
 
 
 def busy_accelerator(log_tail: bytes) -> bool:

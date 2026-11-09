@@ -22,6 +22,10 @@ and may define:
                                                accelerator cores it may use: engine_cores, the reference's
                                                tensor-parallel degree, for an engine; none for a reference); absent:
                                                none
+    peak(cores=1) -> dict | None               the memory bandwidth ('bandwidth', bytes/s) and peak dense BF16
+                                               compute ('compute', FLOP/s, or None) of `cores` accelerator cores,
+                                               with their 'source' named, for the hardware bound
+                                               (enginesmith.bound); absent: no bound
     busy_accelerator(log_tail: bytes) -> bool  whether a failed build's log shows the accelerator held by another
                                                process, an infrastructure failure the build is retried once for;
                                                absent: never

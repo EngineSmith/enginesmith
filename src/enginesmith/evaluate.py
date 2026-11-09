@@ -13,7 +13,10 @@
    steps. (On Lily prompts the model's output is repetitive, so teacher forcing alone is lenient: a stream of one
    repeated token is judged to mismatch at only a few steps, but those tokens rank in the hundreds or thousands.)
 
-Speedups are per case and segment the median over rounds of reference time / candidate time.
+Speedups are per case and segment the median over rounds of reference time / candidate time. Where the hardware
+bound is computed (enginesmith.bound), the fraction of it is the median over rounds of bound time / candidate time. A
+correctness-only reference is no speed baseline: there is no speedup, and the score is the weighted geometric mean of
+the fractions, against a nominal bound (bound.NOMINAL_MS) where the bound is not computed.
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from enginesmith import acceptance, workload
+from enginesmith import acceptance, bound, workload
 from enginesmith.processes import Registry
 from enginesmith.protocol import Engine, EngineFailure
 from enginesmith.task import Gates, Objective
@@ -37,7 +40,7 @@ TIMEOUT_FACTOR = 50
 MIN_TIMEOUT = 300.0
 # The version of the judging rules, the judging zone of zones.toml. A change to that zone adds a version there and
 # sets this to it; runs, reports and shared engines record it.
-EVALUATION_VERSION = 3
+EVALUATION_VERSION = 4
 WARMUP_LENGTH = 2048
 
 
@@ -66,6 +69,8 @@ class Plan:
     objective: Objective
     windows: str = 'nonce'       # 'public' (offset 0), 'nonce' or 'held_out'
     seed: bytes = b''
+    correctness_only: bool = False  # the reference decides correctness only: score the fractions of the bound
+    bounds: dict | None = None   # length -> enginesmith.bound.case_bound
 
     def offset(self, case: workload.Case, round_index: int) -> int:
         if self.windows == 'public' or not case.timed:
@@ -239,7 +244,8 @@ class Evaluator:
     def run(self) -> dict:
         """The evaluation's result. Raises ReferenceFailed (the reference itself failed) and Stopped."""
         result = {'windows': self.plan.windows, 'seed': self.plan.seed.hex() or None, 'rounds': self.plan.rounds,
-                  'started': self.started, 'controls': [], 'cases': [], 'failure': None}
+                  'correctness_only': self.plan.correctness_only, 'started': self.started, 'controls': [], 'cases': [],
+                  'failure': None}
         samples = {(c.id, role): [] for c in self.timed for role in ('reference', 'candidate')}
         try:
             result['controls'] = self._check_controls()
@@ -272,11 +278,17 @@ class Evaluator:
                    # Every mismatching step per round: [step, margin, the reference's token, rank].
                    'judged': [judged.get((case.id, r), []) for r in range(self.plan.rounds)],
                    'first_mismatch': next((s['first_mismatch'] for s in streams if s['first_mismatch']), None)}
+            limits = (self.plan.bounds or {}).get(case.length) or {}
+            row['bound_reason'] = limits.get('reason')
             for index, segment in ((1, 'prefill'), (2, 'decode')):
                 row[f'{segment}_ms'] = {'reference': [s[index] for s in reference],
                                         'candidate': [s[index] for s in candidate]}
-                row[f'{segment}_speedup'] = statistics.median(a[index] / b[index]
-                                                              for a, b in zip(reference, candidate))
+                row[f'{segment}_speedup'] = None if self.plan.correctness_only else statistics.median(
+                    a[index] / b[index] for a, b in zip(reference, candidate))
+                floor = row[f'{segment}_bound_ms'] = limits.get(f'{segment}_ms')
+                if floor is None and self.plan.correctness_only:
+                    floor = bound.NOMINAL_MS * (1 if segment == 'prefill' else case.output_tokens - 1)
+                row[f'{segment}_fraction'] = statistics.median(floor / b[index] for b in candidate) if floor else None
             result['cases'].append(row)
         failed = [c['id'] for c in result['cases'] if not c['passed']]
         return self._finish(result, failure={'kind': 'gates', 'where': ', '.join(failed),
@@ -295,12 +307,14 @@ class Evaluator:
         complete = failure is None or failure['kind'] == 'gates' and bool(result['cases'])
         result.update(failure=failure, passed=failure is None, complete=complete, load_ms=self.load_ms,
                       duration_s=time.time() - self.started)
-        rows = [(c['id'], c['length'], c['prefill_speedup'], c['decode_speedup']) for c in result['cases']]
-        result['score'] = acceptance.score(rows, self.plan.objective) if failure is None else None
-        result['segments'] = acceptance.segment_means(rows, self.plan.objective) if rows else None
+        scored = rows(result)
+        result['score'] = acceptance.score(scored, self.plan.objective) if failure is None else None
+        result['segments'] = acceptance.segment_means(scored, self.plan.objective) if scored else None
         return result
 
 
 def rows(result: dict) -> tuple:
-    """The acceptance rows of an evaluation result."""
-    return tuple((c['id'], c['length'], c['prefill_speedup'], c['decode_speedup']) for c in result['cases'])
+    """The acceptance rows of an evaluation result: the speedups, or with a correctness-only reference the fractions
+    of the hardware bound."""
+    measure = 'fraction' if result.get('correctness_only') else 'speedup'
+    return tuple((c['id'], c['length'], c[f'prefill_{measure}'], c[f'decode_{measure}']) for c in result['cases'])
