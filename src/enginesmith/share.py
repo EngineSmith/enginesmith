@@ -21,15 +21,18 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from dataclasses import asdict
 from pathlib import Path
 
 from enginesmith import __version__, agents, decode_probe, engine_repo, references, report, workload
 from enginesmith.report import _cases
 from enginesmith.brief import reference_kind
+from enginesmith.concurrent import ConcurrentEvaluator, ConcurrentPlan
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog
-from enginesmith.task import REPO, Gates, Objective, model_config, decode_rule
+from enginesmith.task import (CONCURRENT_CONTROL_TOKENS, REPO, ConcurrentObjective, Gates, Objective, decode_rule,
+                              model_config)
 
 FORMAT = 1
 ATTACHMENT_LIMIT = 25 * 1024 * 1024  # the largest file a GitHub Discussions post accepts
@@ -99,9 +102,8 @@ def describe(run, label: str) -> dict:
         'harness': {'version': __version__, 'digest': s['harness'], 'evaluation_version': s.get('evaluation_version'),
                     **_reference(s, t), 'reference_tp': t.reference_tp,
                     'reference_max_length': t.max_request_length()},
-        'settings': {'lengths': list(t.lengths), 'output_tokens': t.output_tokens, 'controls': t.controls,
-                     'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
-                                   'length_weights': {str(k): v for k, v in t.objective.length_weights.items()}},
+        'settings': {'mode': t.mode, 'lengths': list(t.lengths), 'output_tokens': t.output_tokens, 'controls': t.controls,
+                     'objective': _objective(t), 'concurrent': asdict(t.concurrent) if t.concurrent else None,
                      'gates': vars(t.gates), 'evaluation': vars(t.evaluation), 'acceptance': vars(t.acceptance)},
         'search': {'agent': t.agent if t.agent != 'command' else 'a custom agent command', 'agent_model': t.agent_model,
                    'sessions': s['sessions'], 'rounds': len(s['rounds']),
@@ -118,6 +120,14 @@ def describe(run, label: str) -> dict:
     }
 
 
+def _objective(task) -> dict:
+    o = task.objective
+    if task.mode == 'concurrent':
+        return {'throughput': o.throughput, 'ttft': o.ttft, 'latency': o.latency,
+                'level_weights': {str(k): v for k, v in o.level_weights.items()}}
+    return {'prefill': o.prefill, 'decode': o.decode, 'length_weights': {str(k): v for k, v in o.length_weights.items()}}
+
+
 def _x(value) -> str:
     return f'{value:.2f}x' if isinstance(value, (int, float)) else '-'
 
@@ -132,6 +142,8 @@ def _k(value) -> str:
 
 def _agent(info: dict) -> str:
     """The coding agent of the search, with the model and reasoning effort it reported."""
+    if info['search'].get('agent_label'):
+        return info['search']['agent_label']
     ms, kind = info.get('milestones') or {}, info['search']['agent']
     named = lambda key: ', '.join(ms.get(key) or []) or 'not reported'
     return (f'{agents.NAMES.get(kind, kind)} {ms.get("agent_version") or ""}'.rstrip()
@@ -154,8 +166,7 @@ def readme(info: dict, repository: str | None = None) -> str:
     m, mc, final = info['model'], info['machine'], info['final']
     ref = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
     results = final or info['search']['evaluation'] or {'cases': []}
-    rows = '\n'.join(f'| {c["length"]:,} | {_x(c["prefill_speedup"])} | {_x(c["decode_speedup"])} |'
-                     for c in results['cases'])
+    concurrent = info['settings'].get('mode') == 'concurrent'
     source = f'[{m["source"]}](https://huggingface.co/{m["source"]})' if m['source'] else m['name']
     revision = f' at revision `{m["revision"]}`' if m['revision'] else ''
     lines = [f'# {info["name"]}', '',
@@ -172,28 +183,10 @@ def readme(info: dict, repository: str | None = None) -> str:
                if repository else []),
              f'- Search: {info["search"]["rounds"]} rounds by {_agent(info)}'
              + (f', agent cost ${info["search"]["agent_cost_usd"]:.2f}' if info['search']['agent_cost_usd'] else ''),
-             '', f'## Speed against {ref} ({"held-out final evaluation" if final else "search evaluation"})', '',
-             f'Score {_x(results.get("score"))}; prefill {_x((results.get("segments") or {}).get("prefill"))}, '
-             f'decode {_x((results.get("segments") or {}).get("decode"))} (reference time / engine time, '
-             f'{info["settings"]["output_tokens"]} tokens per request).', '',
-             '| prompt tokens | prefill | decode |', '|---:|---:|---:|', rows, '']
-    if final:
-        g = final['gates']
-        lines += [f'Correctness: {"passed" if final["passed"] else "FAILED"}; {g["total_mismatches"]} of '
-                  f'{g["total_steps"]} judged steps mismatch (at most {g["allowed"]} allowed).', '']
-    lines += ['## Speed in absolute terms', '',
-              f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this engine '
-              f'and {ref} on the same machine.', '',
-              '| prompt tokens | time to first token, ms | prefill tok/s | decode tok/s |', '|---:|---:|---:|---:|']
-    lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} ({ref} {_n(c["reference_ttft_ms"])}) | '
-              f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
-              f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
-    lines.append('')
-    lines += ['## Checks on the decode speed', '',
-              f'- Natural text: {report.natural_text(info.get("natural_speed"))}.',
-              f'- Decode probe: {report.probe_text(info.get("decode_probe"))}. One forward pass per generated token '
-              'keeps this near 1; speculative decoding raises it.', '']
+             '']
+    lines += (_concurrent_speed if concurrent else _single_speed)(info, results, final, ref)
     ms, history = info.get('milestones') or {}, [r for r in info.get('history') or [] if r['kind'] != 'final']
+    segments = ('throughput', 'ttft', 'latency') if concurrent else ('prefill', 'decode')
     if history:
         reached = lambda key, what: (f'{what}: round {ms[key]["round"]}, {ms[key]["minutes"]:.0f} min after the start'
                                      if ms.get(key) else f'{what}: not reached')
@@ -208,13 +201,14 @@ def readme(info: dict, repository: str | None = None) -> str:
                    f'tokens, {_k(ms["total_cache_read_tokens"])} cache reads, '
                    + (f'${ms["total_cost_usd"]:.2f}' if ms['total_cost_usd'] is not None else 'cost not reported')
                    + ' (as the agent reported them).'), '',
-                  '| round | kind | outcome | ended, min | score | prefill | decode | tokens in / out | engine lines |',
-                  '|---|---|---|---:|---:|---:|---:|---:|---:|']
+                  f'| round | kind | outcome | ended, min | score | {" | ".join(segments)} | tokens in / out | engine lines |',
+                  f'|---|---|---|---:|---:|{"---:|" * len(segments)}---:|---:|']
         lines += [f'| {r["round"]} | {r["kind"]} | {"accepted" if r["accepted"] else "rejected"} ({r["reason"]}) | '
-                  f'{_n(r["ended_min"])} | {_x(r["score"])} | {_x(r["prefill"])} | {_x(r["decode"])} | '
+                  f'{_n(r["ended_min"])} | {_x(r["score"])} | {" | ".join(_x(r[name]) for name in segments)} | '
                   f'{_k(r["input_tokens"])} / {_k(r["output_tokens"])} | {_n(r["engine_lines"])} |' for r in history]
-        lines += ['', f'`history.csv`{" in " + repository if repository else ""} has every round with every prompt '
-                  'length; `enginesmith.json` has the same and more.', '']
+        lines += ['', f'`history.csv`{" in " + repository if repository else ""} has every round with every '
+                  f'{"concurrency level" if concurrent else "prompt length"}; `enginesmith.json` has the same and '
+                  'more.', '']
     quality = info['quality']
     if quality:
         lines += ['## Task accuracy (greedy decoding)', '', f'| benchmark | {ref} | this engine |', '|---|---:|---:|']
@@ -233,7 +227,8 @@ def readme(info: dict, repository: str | None = None) -> str:
               f'uv run enginesmith verify {repository or info["name"] + ".zip"} --model models/{m["name"]}', '```', '',
               f'Build it yourself: `{" ".join(info["engine"]["build"])}` in `source/`, then run '
               f'`{info["engine"]["executable"]} --model MODEL_DIR`; it speaks the engine protocol of EngineSmith\'s '
-              '`docs/protocol.md` (token ids in, greedy token ids out). Read the source before you run it: it is '
+              f'`docs/protocol.md` ({"version 2, concurrent requests with streamed tokens; " if concurrent else ""}'
+              'token ids in, greedy token ids out). Read the source before you run it: it is '
               'native code written by a coding agent.'
               + (' `bin/engine` is the author\'s build for their machine.' if info['engine'].get('binary') else ''),
               '',
@@ -244,6 +239,70 @@ def readme(info: dict, repository: str | None = None) -> str:
                '(`source/THIRD_PARTY.md` lists it when the agent recorded any).' if license != 'none' else
                'No license: the author keeps all rights.'), '']
     return '\n'.join(lines)
+
+
+def _single_speed(info: dict, results: dict, final: dict | None, ref: str) -> list[str]:
+    rows = '\n'.join(f'| {c["length"]:,} | {_x(c["prefill_speedup"])} | {_x(c["decode_speedup"])} |'
+                     for c in results['cases'])
+    lines = [f'## Speed against {ref} ({"held-out final evaluation" if final else "search evaluation"})', '',
+             f'Score {_x(results.get("score"))}; prefill {_x((results.get("segments") or {}).get("prefill"))}, '
+             f'decode {_x((results.get("segments") or {}).get("decode"))} (reference time / engine time, '
+             f'{info["settings"]["output_tokens"]} tokens per request).', '',
+             '| prompt tokens | prefill | decode |', '|---:|---:|---:|', rows, '']
+    lines += _correctness(final)
+    lines += ['## Speed in absolute terms', '',
+              f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this engine '
+              f'and {ref} on the same machine.', '',
+              '| prompt tokens | time to first token, ms | prefill tok/s | decode tok/s |', '|---:|---:|---:|---:|']
+    lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} ({ref} {_n(c["reference_ttft_ms"])}) | '
+              f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
+              f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
+    lines.append('')
+    lines += ['## Checks on the decode speed', '',
+              f'- Natural text: {report.natural_text(info.get("natural_speed"))}.',
+              f'- Decode probe: {report.probe_text(info.get("decode_probe"))}. One forward pass per generated token '
+              'keeps this near 1; speculative decoding raises it.', '']
+    return lines
+
+
+def _correctness(final: dict | None) -> list[str]:
+    if not final:
+        return []
+    g = final['gates']
+    return [f'Correctness: {"passed" if final["passed"] else "FAILED"}; {g["total_mismatches"]} of '
+            f'{g["total_steps"]} judged steps mismatch (at most {g["allowed"]} allowed).', '']
+
+
+def _concurrent_speed(info: dict, results: dict, final: dict | None, ref: str) -> list[str]:
+    c, o, segments = info['settings']['concurrent'], info['settings']['objective'], results.get('segments') or {}
+    levels = ', '.join(f'{k} clients (weight {v:g})' for k, v in o['level_weights'].items())
+    lines = ['## The workload', '',
+             f'Concurrent requests (preset `{c["preset"] or "none"}`): at each level, closed-loop clients send '
+             f'{c["requests_per_level"]} independent requests, each client its next one as soon as the last has all '
+             f'its tokens. Prompts of {c["prompt_range"][0]:,}-{c["prompt_range"][1]:,} tokens and outputs of '
+             f'{c["output_range"][0]}-{c["output_range"][1]} tokens, drawn log-uniformly. Levels: {levels}. Score '
+             f'weights: throughput {o["throughput"]:g}, time to first token {o["ttft"]:g}, normalized latency '
+             f'{o["latency"]:g}.', '',
+             f'## Speed against {ref} ({"held-out final evaluation" if final else "search evaluation"})', '',
+             f'Score {_x(results.get("score"))}; throughput {_x(segments.get("throughput"))}, time to first token '
+             f'{_x(segments.get("ttft"))}, normalized latency {_x(segments.get("latency"))} (reference / engine, '
+             'higher is better). Latencies are 90th percentiles over the requests; normalized latency is a '
+             'request\'s end-to-end time divided by its output tokens.', '',
+             '| clients | throughput | time to first token | normalized latency |', '|---:|---:|---:|---:|']
+    lines += [f'| {r["level"]} | {_x(r["throughput_speedup"])} | {_x(r["ttft_speedup"])} | {_x(r["latency_speedup"])} |'
+              for r in results['cases']]
+    lines.append('')
+    lines += _correctness(final)
+    lines += ['## Speed in absolute terms', '',
+              f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this engine '
+              f'and {ref} on the same machine.', '',
+              '| clients | output tok/s | time to first token p90, ms | normalized latency p90, ms per token |',
+              '|---:|---:|---:|---:|']
+    lines += [f'| {r["level"]} | {_n(r["output_tok_s"])} ({ref} {_n(r["reference_output_tok_s"])}) | '
+              f'{_n(r["ttft_p90_ms"])} ({_n(r["reference_ttft_p90_ms"])}) | '
+              f'{_n(r["latency_p90_ms"])} ({_n(r["reference_latency_p90_ms"])}) |' for r in results['cases']]
+    lines.append('')
+    return lines
 
 
 LICENSES = ('MIT', 'Apache-2.0', 'none')
@@ -342,12 +401,11 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
 
 
 def share(run, label: str | None = None, out: Path | None = None, binary: bool = False, post: bool = False,
-          private: bool = False, license: str = 'MIT') -> dict:
+          private: bool = False, license: str = 'MIT', agent_label: str | None = None) -> dict:
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
     user's GitHub account (public unless private) and a post in EngineSmith's Discussions (category Engines) shows its
-    results and links it; this uses the GitHub CLI and the user's login."""
-    if run.task.mode == 'concurrent':
-        raise ValueError('sharing an engine of a concurrent task is not supported yet')
+    results and links it; this uses the GitHub CLI and the user's login. agent_label names the coding agent when the
+    run's own record cannot (a custom agent command)."""
     label = label or run.state['incumbent']
     if not label or not (run.round_dir(label) / 'engine').is_file():
         raise ValueError('nothing to share: the run has no built engine for that round')
@@ -356,6 +414,8 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     if license not in LICENSES:
         raise ValueError(f'license must be one of {", ".join(LICENSES)}')
     info['engine'].update(binary=binary, license=license)
+    if agent_label:
+        info['search']['agent_label'] = agent_label
     root = Path(out) if out else run.dir / 'share'
     package = root / info['name']
     if package.exists():
@@ -377,7 +437,8 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         (package / 'LICENSE').write_text(text)
     (package / 'enginesmith.json').write_text(json.dumps(info, indent=2))
     (package / 'README.md').write_text(readme(info, repository))
-    (package / 'history.csv').write_text(report.history_csv(info['history'], run.task.lengths))
+    (package / 'history.csv').write_text(report.history_csv(info['history'], run.task.lengths,
+                                                            run.task.concurrent.levels if run.task.concurrent else None))
     zipped = Path(shutil.make_archive(str(package), 'zip', root_dir=root, base_dir=info['name']))
     size = zipped.stat().st_size
     result = {'package': str(package), 'zip': str(zipped), 'zip_bytes': size,
@@ -408,6 +469,40 @@ def _unpack(package: Path, work: Path) -> Path:
             if mode and not member.is_dir():
                 (work / member.filename).chmod(mode)  # zipfile does not restore permissions (executables)
     return work / names.pop()
+
+
+def _verify_concurrent(info, root, work, model, executable, vocab, rounds, reference, use_binary, judged, log) -> dict:
+    """verify for a concurrent task: the package's workload and weights, a request plan and prompts drawn here."""
+    s, c, o = info['settings'], info['settings']['concurrent'], info['settings']['objective']
+    objective = ConcurrentObjective(o['throughput'], o['ttft'], o['latency'],
+                                    {int(k): v for k, v in o['level_weights'].items()})
+    structure_seed = os.urandom(32)
+    levels = tuple(c['levels'])
+    structure = workload.request_plan(structure_seed, levels, c['requests_per_level'], tuple(c['prompt_range']),
+                                      tuple(c['output_range']), c['stagger_s'])
+    controls = tuple(workload.cases((), CONCURRENT_CONTROL_TOKENS, None, s['controls']))
+    plan = ConcurrentPlan(structure, controls, vocab, rounds or s['evaluation']['rounds'], s['evaluation']['warmup'],
+                          s['evaluation']['cooldown_s'], Gates(**s['gates']), objective, 'nonce', os.urandom(32),
+                          structure_seed)
+    kind = info['harness']['reference'] if info['harness']['reference'] in references.KINDS else \
+        current().DEFAULT_REFERENCE
+    if reference is None and kind is None:
+        raise ValueError('no reference for this package on this platform')
+    max_length = info['harness'].get('reference_max_length')
+    reference = reference or references.command(kind, model, max_length, info['harness'].get('reference_tp', 1))
+    registry = Registry(work / 'engines')
+    with Watchdog([registry]):
+        result = ConcurrentEvaluator(reference, [*reference, '--concurrent'], [str(executable), '--model', str(model)],
+                                     plan, work / 'evaluation', registry=registry, log=log).run()
+    summary = {'package': info['name'], 'machine': machine(), 'passed': result['passed'], 'failure': result['failure'],
+               'score': result['score'], 'segments': result['segments'], 'gates': result['gates'],
+               'cases': _cases(result), 'claimed': info['final'] or info['search']['evaluation'],
+               'evaluation_version': {'package': judged, 'here': EVALUATION_VERSION},
+               'built_from_source': not use_binary}
+    (work / 'verify.json').write_text(json.dumps(summary, indent=2))
+    (work / 'evaluation' / 'result.json').write_text(json.dumps(result, indent=2))
+    summary['directory'] = str(work)
+    return summary
 
 
 def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths=None, rounds: int | None = None,
@@ -462,6 +557,8 @@ def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths
         if info['engine']['native'] and (reason := current().native_problem(executable)):
             raise RuntimeError(f'{info["engine"]["executable"]} is {reason}')
     s = info['settings']
+    if s.get('mode') == 'concurrent':
+        return _verify_concurrent(info, root, work, model, executable, vocab, rounds, reference, use_binary, judged, log)
     chosen = list(lengths or s['lengths'])
     objective = Objective(s['objective']['prefill'], s['objective']['decode'],
                           {int(k): v for k, v in s['objective']['length_weights'].items()})

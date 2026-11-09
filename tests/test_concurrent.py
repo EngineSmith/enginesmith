@@ -1,5 +1,6 @@
 """The concurrent workload mode: the request plan, the task keys, the evaluator and the acceptance rows."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -175,3 +176,24 @@ def test_a_concurrent_run_accepts_a_batching_engine_and_runs_the_final(tmp_path,
     assert report['mode'] == 'concurrent' and report['best']['cases'][1]['level'] == 4
     assert 'c4_throughput_speedup' in (run.dir / 'history.csv').read_text().splitlines()[0]
     assert 'Best engine by concurrency level' in (run.dir / 'report.html').read_text()
+
+
+def test_a_concurrent_engine_can_be_shared_and_verified(tmp_path, model_dir, monkeypatch):
+    from enginesmith.run import Run
+    from enginesmith.share import share, verify
+    monkeypatch.setenv('FAKE_AGENT_PLAN', json.dumps({'001': ['--concurrent', '--batch', '4']}))
+    path = concurrent_task(tmp_path, model_dir, {'requests_per_level': 8, 'prompt_range': [64, 256],
+                                                 'output_range': [8, 16], 'stagger': '0.01s'}, budget={'sessions': 1})
+    run = Run.create(load_task(path), tmp_path / 'runs')
+    assert run.drive()['final']['passed']
+    result = share(run, out=tmp_path / 'out', agent_label='Claude Opus 5.5 subagents')
+    package = Path(result['package'])
+    readme = (package / 'README.md').read_text()
+    assert 'closed-loop clients' in readme and '| 4 | ' in readme and 'normalized latency' in readme
+    assert 'Claude Opus 5.5 subagents' in readme and 'Decode probe' not in readme and 'version 2' in readme
+    assert str(tmp_path) not in readme and 'c4_throughput_speedup' in (package / 'history.csv').read_text()
+    info = json.loads((package / 'enginesmith.json').read_text())
+    assert info['settings']['mode'] == 'concurrent' and info['settings']['concurrent']['levels'] == [1, 4]
+    assert str(tmp_path) not in json.dumps(info)
+    summary = verify(package, model_dir, out=tmp_path / 'verify', rounds=1, reference=fake_engine('--reference'), log=lambda m: None)
+    assert summary['passed'] and [c['level'] for c in summary['cases']] == [1, 4]

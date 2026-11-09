@@ -66,8 +66,8 @@ Durations are seconds (a number) or strings such as `"90s"`, `"45m"` and `"2h"`.
 [protocol.md](protocol.md), the evaluation in [design.md](design.md)). Every value below must be written in the task
 file; `preset` only records which starting point they were copied from, and the plan lists what differs from it.
 `workload.lengths`, `workload.output_tokens`, `objective.prefill`, `objective.decode` and `objective.length_weights`
-do not apply. Concurrent tasks run on Apple Silicon with the mlx-lm reference for now, without `[quality]`, the decode
-probe or sharing.
+do not apply. Concurrent tasks run on Apple Silicon with the mlx-lm reference for now, without `[quality]` or the
+decode probe.
 
 | key | meaning |
 |---|---|
