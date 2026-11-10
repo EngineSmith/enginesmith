@@ -9,6 +9,7 @@
 files = [
     "src/enginesmith/acceptance.py",          # the score and the acceptance rules
     "src/enginesmith/evaluate.py",            # controls, paired rounds, teacher-forced judging, gates, timeouts
+    "src/enginesmith/concurrent.py",          # the concurrent mode: closed-loop clients, its times and its rounds
     "src/enginesmith/protocol.py",            # the engine protocol and its timing
     "src/enginesmith/workload.py",            # the Lily prompts and the public, held-out and nonce ranges
     "src/enginesmith/references/mlx_lm.py",   # the reference on Apple Silicon
@@ -85,3 +86,9 @@ or tensor parallel across several ([reference] tensor_parallel); judge teacher-f
 compilation that returns logits. On Trainium the engine sees exactly the NeuronCores the reference generates on (its \
 tensor-parallel degree N); the reference sees those and the next N, where it judges. The rules for Apple Silicon and \
 AMD are unchanged."""
+
+[[versions]]
+version = 4
+date = "2026-11-09"
+fingerprint = "5ddd15dbbb397ff670bbb8f3e4f939a75b62858e10bf544f550c612030160c04"
+changes = """Adds the concurrent mode ([workload] mode = "concurrent", protocol 2): per concurrency level, closed-loop clients send independent requests whose prompt and output lengths come from a request plan drawn once per run (and again for the final); the harness times each request from just before it writes it. Per level and round: throughput (first request to last token), the 90th percentile of the time to the first token and of the normalized latency (end-to-end time / output tokens); a speedup is the median over rounds of reference / candidate; the score and the acceptance rules are those of single-request tasks with levels for prompt lengths and throughput, ttft and latency for prefill and decode. Request streams are judged against the single-request reference as before; the timed reference is mlx-lm's own BatchGenerator with mlx_lm.server's settings. Single-request tasks are judged as before."""

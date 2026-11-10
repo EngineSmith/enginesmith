@@ -109,6 +109,8 @@ def main(argv=None) -> int:
     p.add_argument('--license', choices=('MIT', 'Apache-2.0', 'none'), default='MIT',
                    help="the engine's license, under your name (default: MIT)")
     p.add_argument('--private', action='store_true', help='make the repository private (the post is still made)')
+    p.add_argument('--agent-label', help='how to name the coding agent in the package, when the run ran a custom agent '
+                   'command')
     p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local reference')
     p.add_argument('package', help="a package directory, its zip, or its repository's URL")
     p.add_argument('--model', type=Path, required=True, help='the model directory (the same files as the package\'s)')
@@ -121,6 +123,8 @@ def main(argv=None) -> int:
     p.add_argument('--rounds', type=int, default=1)
     p.add_argument('--no-build', action='store_true')
     p.add_argument('--cooldown', type=float, help='seconds before each engine process (default: the task\'s)')
+    p.add_argument('--levels', help='a concurrent task: comma-separated concurrency levels (default: all of them)')
+    p.add_argument('--requests', type=int, help='a concurrent task: requests per level (default: the task\'s)')
     p = sub.add_parser('dataset', help='write the public development prompts as JSON lines')
     p.add_argument('--vocab', type=int, required=True)
     p.add_argument('--lengths', default=','.join(map(str, workload.LENGTHS)))
@@ -235,7 +239,7 @@ def main(argv=None) -> int:
             from enginesmith.run import Run
             from enginesmith.share import share
             emit(share(Run(args.run), args.round, args.out, binary=args.binary, post=not args.no_post,
-                       private=args.private, license=args.license))
+                       private=args.private, license=args.license, agent_label=args.agent_label))
         elif args.command == 'verify':
             from enginesmith.share import verify
             lengths = [int(n) for n in args.lengths.split(',')] if args.lengths else None
@@ -243,7 +247,7 @@ def main(argv=None) -> int:
                         use_binary=args.binary, log=lambda m: print(m, file=sys.stderr, flush=True)))
         elif args.command == 'dev-eval':
             from enginesmith import dev_eval
-            return dev_eval.run(args.lengths, args.rounds, not args.no_build, args.cooldown)
+            return dev_eval.run(args.lengths, args.rounds, not args.no_build, args.cooldown, args.levels, args.requests)
         elif args.command == 'dataset':
             lengths = [int(n) for n in args.lengths.split(',')]
             with open(args.out, 'x') as out:

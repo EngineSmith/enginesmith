@@ -125,6 +125,8 @@ def prepare(task_path: Path, lengths=None, max_request_s: float = 3600.0, log=pr
     """Run the reference once at every workload length on this machine and record its times and peak memory, then
     estimate how long one formal evaluation takes. Writes prepare.json next to the task file."""
     task = load_task(task_path)
+    if task.mode == 'concurrent':
+        return prepare_concurrent(task, max_request_s, log)
     lengths = sorted(lengths or task.lengths)
     scratch = task.path.parent / '.prepare'
     registry = Registry(scratch / 'engines')
@@ -160,6 +162,54 @@ def prepare(task_path: Path, lengths=None, max_request_s: float = 3600.0, log=pr
     controls = 2 * (load_ms or 0) / 1000 + 60
     evaluation = e.rounds * 2 * (per_arm + e.cooldown_s) + controls if rows else None
     result = {'task': str(task.path), 'observed': {'load_ms': load_ms, 'lengths': rows},
+              'stopped': stopped, 'duration_s': time.time() - started,
+              'estimates': {'evaluation_s': evaluation, 'final_s': evaluation and evaluation * e.final_rounds / e.rounds,
+                            'basis': 'the reference times above, the candidate assumed as fast as the reference, '
+                                     'plus loads and cooldowns; judging of differing streams not included'}}
+    (task.path.parent / 'prepare.json').write_text(json.dumps(result, indent=2))
+    return result
+
+
+def prepare_concurrent(task, max_level_s: float = 3600.0, log=print) -> dict:
+    """The reference's concurrent mode once at every level of a concurrent task, on a request plan of its own (seed
+    'prepare'): its times per level and peak memory, then an estimate of one formal evaluation. Writes prepare.json."""
+    from enginesmith import concurrent
+    from enginesmith.brief import reference_concurrent_argv
+    plan = concurrent.plan(task, 1, 'nonce', b'prepare', b'prepare')
+    scratch = task.path.parent / '.prepare'
+    registry = Registry(scratch / 'engines')
+    rows, stopped, load_ms, killed = [], None, None, []
+    started = time.time()
+    with Watchdog([registry], on_kill=killed.append):
+        engine = Engine(reference_concurrent_argv(task), scratch=scratch / 'reference', label='reference',
+                        registry=registry)
+        with engine:
+            try:
+                load_ms = engine.hello(1800.0, concurrent.PROTOCOL)
+                log(f'reference loaded in {load_ms / 1000:.1f} s')
+                warm = workload.Request('warmup', 1, 0, 0, 2)
+                prompt = plan.warmup_prompt(0)
+                concurrent.drive(engine, [[warm]], [0.0], {'warmup': prompt}, task.vocab_size, max_level_s)
+                for level, spec in plan.levels.items():
+                    engine.call('stats', 60.0, reset_peak=True)
+                    prompts = {q.id: plan.prompt(q, 0) for q in spec['requests']}
+                    trace = concurrent.drive(engine, spec['clients'], spec['starts_s'], prompts, task.vocab_size,
+                                             max_level_s)
+                    stats, _ = engine.call('stats', 60.0)
+                    metrics = concurrent.measure(trace, spec['requests'])
+                    rows.append({'level': level, **metrics, 'peak_memory_bytes': stats['peak_memory']})
+                    log(f'{level:>3} clients: {metrics["makespan_ms"] / 1000:.1f} s for {len(spec["requests"])} '
+                        f'requests, {metrics["output_tok_s"]} output tok/s, ttft p90 {metrics["ttft_p90_ms"]:.0f} ms, '
+                        f'latency p90 {metrics["latency_p90_ms"]:.1f} ms/token, peak memory '
+                        f'{stats["peak_memory"] / 2**30:.1f} GiB')
+            except EngineFailure as exc:
+                stopped = f'{exc} (memory pressure turned critical)' if killed else str(exc)
+                log(f'stopped: {stopped}')
+    e = task.evaluation
+    per_arm = sum(r['makespan_ms'] for r in rows) / 1000 + (load_ms or 0) / 1000
+    controls = 2 * (load_ms or 0) / 1000 + 60
+    evaluation = e.rounds * 2 * (per_arm + e.cooldown_s) + controls if rows else None
+    result = {'task': str(task.path), 'mode': 'concurrent', 'observed': {'load_ms': load_ms, 'levels': rows},
               'stopped': stopped, 'duration_s': time.time() - started,
               'estimates': {'evaluation_s': evaluation, 'final_s': evaluation and evaluation * e.final_rounds / e.rounds,
                             'basis': 'the reference times above, the candidate assumed as fast as the reference, '

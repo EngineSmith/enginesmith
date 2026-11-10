@@ -67,3 +67,42 @@ def cases(lengths, output_tokens: int, weights: dict[int, float] | None = None, 
     extra = [Case(f'control-p{n}', n, output_tokens, 0.0) for n in CONTROL_LENGTHS if n not in set(lengths)] \
         if controls else []
     return timed + extra
+
+
+@dataclass(frozen=True)
+class Request:
+    """One request of a concurrent workload: a fresh prompt of `length` tokens and `output_tokens` to generate, sent
+    by one closed-loop client (docs/design.md, concurrent evaluation)."""
+    id: str
+    level: int
+    client: int
+    length: int
+    output_tokens: int
+
+
+def _unit(seed: bytes, label: str) -> float:
+    """A number in [0, 1) derived from seed and label."""
+    return int.from_bytes(hashlib.sha256(seed + b'\0' + label.encode()).digest()[:8], 'big') / 2**64
+
+
+def _log_uniform(seed: bytes, label: str, low: int, high: int) -> int:
+    if low == high:
+        return low
+    return min(high, max(low, round(low * (high / low) ** _unit(seed, label))))
+
+
+def request_plan(seed: bytes, levels, requests_per_level: int, prompt_range, output_range,
+                 stagger_s: float) -> dict[int, dict]:
+    """The structure of a concurrent evaluation, derived from seed: per level, its requests (prompt and output lengths
+    log-uniform in the ranges), the requests each client sends in order (request i goes to client i mod level), and
+    each client's start time in seconds, the earliest at 0. A run draws one structure for all its rounds and a new one
+    for the final."""
+    plan = {}
+    for level in levels:
+        requests = [Request(f'c{level}-{i:04d}', level, i % level,
+                            _log_uniform(seed, f'prompt/{level}/{i}', *prompt_range),
+                            _log_uniform(seed, f'output/{level}/{i}', *output_range)) for i in range(requests_per_level)]
+        starts = [stagger_s * _unit(seed, f'start/{level}/{c}') for c in range(level)]
+        plan[level] = {'requests': requests, 'clients': [[r for r in requests if r.client == c] for c in range(level)],
+                       'starts_s': [s - min(starts) for s in starts]}
+    return plan

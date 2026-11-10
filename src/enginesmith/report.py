@@ -17,11 +17,15 @@ NATURAL_TITLES = {'math500': 'MATH-500', 'ifeval': 'IFEval'}
 
 # One row per decided round, then one for the held-out final. The per-case columns follow, for every task length.
 FIELDS = ('round', 'kind', 'base_round', 'started_min', 'ended_min', 'session_min', 'accepted', 'reason', 'failure',
-          'passed', 'score', 'prefill', 'decode', 'incumbent_score', 'agent_model', 'agent_effort', *agents.USAGE_KEYS,
+          'passed', 'score', 'prefill', 'decode', 'throughput', 'ttft', 'latency', 'incumbent_score', 'agent_model', 'agent_effort', *agents.USAGE_KEYS,
           'cumulative_cost_usd', 'dev_evals', 'dev_evals_passed', 'engine_lines', 'lines_added', 'lines_removed',
           'changed_files')
 CASE_FIELDS = ('prefill_speedup', 'decode_speedup', 'ttft_ms', 'prefill_tok_s', 'decode_tok_s', 'reference_ttft_ms',
                'reference_prefill_tok_s', 'reference_decode_tok_s', 'mismatches')
+# The per-level columns of a concurrent task.
+LEVEL_FIELDS = ('throughput_speedup', 'ttft_speedup', 'latency_speedup', 'output_tok_s', 'reference_output_tok_s',
+                'ttft_p90_ms', 'reference_ttft_p90_ms', 'latency_p90_ms', 'reference_latency_p90_ms', 'mismatches')
+SEGMENT_NAMES = ('prefill', 'decode', 'throughput', 'ttft', 'latency')
 
 
 def _speeds(case: dict) -> dict:
@@ -40,7 +44,21 @@ def _speeds(case: dict) -> dict:
     return out
 
 
+def _level(case: dict) -> dict:
+    """A concurrent level's speedups and, medians over the rounds, the engine's and the reference's times."""
+    out = {'level': case['level'], 'mismatches': sum(case.get('mismatches') or [])}
+    for segment in ('throughput', 'ttft', 'latency'):
+        out[f'{segment}_speedup'] = case.get(f'{segment}_speedup')
+    for key in ('output_tok_s', 'ttft_p90_ms', 'latency_p90_ms'):
+        for arm, prefix in (('candidate', ''), ('reference', 'reference_')):
+            values = [m[key] for m in case.get(arm) or [] if m.get(key) is not None]
+            out[f'{prefix}{key}'] = round(statistics.median(values), 3) if values else None
+    return out
+
+
 def _cases(result: dict | None) -> list[dict]:
+    if (result or {}).get('mode') == 'concurrent':
+        return [_level(c) for c in result.get('cases', [])]
     return [{'length': c['length'], 'prefill_speedup': c.get('prefill_speedup'),
              'decode_speedup': c.get('decode_speedup'), 'mismatches': sum(c.get('mismatches') or []), **_speeds(c)}
             for c in (result or {}).get('cases', [])]
@@ -71,8 +89,8 @@ def history(run) -> list[dict]:
                      'failure': failure.get('kind') or ('build' if (record.get('build') or {}).get('error') else None),
                      'failure_message': failure.get('message') or (record.get('build') or {}).get('error'),
                      'passed': (result or {}).get('passed'), 'score': entry.get('score'),
-                     'prefill': ((result or {}).get('segments') or {}).get('prefill'),
-                     'decode': ((result or {}).get('segments') or {}).get('decode'), 'incumbent_score': incumbent,
+                     **{name: ((result or {}).get('segments') or {}).get(name) for name in SEGMENT_NAMES},
+                     'incumbent_score': incumbent,
                      'agent_model': session.get('model'), 'agent_effort': session.get('effort'),
                      **{key: session.get(key) for key in agents.USAGE_KEYS},
                      'cumulative_cost_usd': round(cost, 6) if priced else None,
@@ -89,8 +107,9 @@ def history(run) -> list[dict]:
                      'started_min': minutes(result.get('started')), 'ended_min': minutes(ended),
                      'reason': 'held-out', 'failure': (final.get('failure') or {}).get('kind'),
                      'failure_message': (final.get('failure') or {}).get('message'), 'passed': final.get('passed'),
-                     'score': final.get('score'), 'prefill': (final.get('segments') or {}).get('prefill'),
-                     'decode': (final.get('segments') or {}).get('decode'), 'cases': _cases(result)})
+                     'score': final.get('score'),
+                     **{name: (final.get('segments') or {}).get(name) for name in SEGMENT_NAMES},
+                     'cases': _cases(result)})
     return rows
 
 
@@ -116,16 +135,18 @@ def milestones(run, rows: list[dict]) -> dict:
             'inputs': run.state.get('inputs')}
 
 
-def history_csv(rows: list[dict], lengths) -> str:
+def history_csv(rows: list[dict], lengths, levels=None) -> str:
+    """One row per round; per prompt length (or, for a concurrent task, per level) its columns."""
     def cell(value):
         return '' if value is None else value
+    keys, key, prefix, fields = (levels, 'level', 'c', LEVEL_FIELDS) if levels else (lengths, 'length', 'p', CASE_FIELDS)
     out = io.StringIO()
     writer = csv.writer(out)
-    writer.writerow([*FIELDS, *(f'p{n}_{field}' for n in lengths for field in CASE_FIELDS)])
+    writer.writerow([*FIELDS, *(f'{prefix}{n}_{field}' for n in keys for field in fields)])
     for row in rows:
-        cases = {case['length']: case for case in row['cases']}
+        cases = {case[key]: case for case in row['cases']}
         writer.writerow([cell(row[field]) for field in FIELDS]
-                        + [cell(cases.get(n, {}).get(field)) for n in lengths for field in CASE_FIELDS])
+                        + [cell(cases.get(n, {}).get(field)) for n in keys for field in fields])
     return out.getvalue()
 
 
@@ -138,8 +159,11 @@ def build(run) -> dict:
             'reference_tp': t.reference_tp,
             'created': s['created'], 'deadline': s['deadline'], 'updated': time.time(),
             'search_end': s['search_end'], 'error': s['error'], 'sessions': s['sessions'],
-            'current_round': s['current'], 'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
-                                                          'lengths': {n: t.objective.case_weight(n) for n in t.lengths}},
+            'mode': t.mode, 'current_round': s['current'],
+            'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
+                          'lengths': {n: t.objective.case_weight(n) for n in t.lengths}} if t.mode == 'single' else
+            {'throughput': t.objective.throughput, 'ttft': t.objective.ttft, 'latency': t.objective.latency,
+             'levels': {n: t.objective.case_weight(n) for n in t.concurrent.levels}},
             'incumbent': s['incumbent'],
             'best': {'round': s['incumbent'], 'score': best['score'], 'segments': best['segments'],
                      'cases': _cases(best)} if best else None,
@@ -238,6 +262,38 @@ def tensor_parallel(degree) -> str:
 def render(data: dict) -> str:
     e = html.escape
     best = data['best']
+    concurrent = data.get('mode') == 'concurrent'
+    if concurrent:
+        cases = ''.join(f'<tr><td>{c["level"]}</td><td>{_x(c["throughput_speedup"])}</td><td>{_x(c["ttft_speedup"])}</td>'
+                        f'<td>{_x(c["latency_speedup"])}</td>'
+                        f'<td>{_n(c["output_tok_s"])} / {_n(c["reference_output_tok_s"])}</td>'
+                        f'<td>{_n(c["ttft_p90_ms"])} / {_n(c["reference_ttft_p90_ms"])}</td>'
+                        f'<td>{_n(c["latency_p90_ms"])} / {_n(c["reference_latency_p90_ms"])}</td></tr>'
+                        for c in (best or {}).get('cases', []))
+        case_head = ('<h2>Best engine by concurrency level</h2><div class="scroll"><table><tr><th>clients</th>'
+                     '<th>throughput speedup</th><th>ttft speedup</th><th>latency speedup</th>'
+                     '<th>output tok/s (engine / reference)</th><th>ttft p90, ms</th>'
+                     '<th>latency p90, ms per token</th></tr>')
+        o = data['objective']
+        objective = (f'Objective: throughput weight {o["throughput"]:g}, ttft weight {o["ttft"]:g}, latency weight '
+                     f'{o["latency"]:g}; levels ' + ', '.join(f'{k} ({v:g})' for k, v in o['levels'].items()) + '.')
+        segment_text = (lambda b: ', '.join(f'{k} {_x(v)}' for k, v in b['segments'].items()))
+        segment_cells = lambda r: f'<td>{_x(r["throughput"])}</td><td>{_x(r["ttft"])}</td><td>{_x(r["latency"])}</td>'
+        segment_heads = '<th>throughput</th><th>ttft</th><th>latency</th>'
+    else:
+        cases = ''.join(f'<tr><td>{c["length"]:,}</td><td>{_x(c["prefill_speedup"])}</td><td>{_x(c["decode_speedup"])}</td>'
+                        f'<td>{_n(c["ttft_ms"])} / {_n(c["reference_ttft_ms"])}</td>'
+                        f'<td>{_n(c["decode_tok_s"])} / {_n(c["reference_decode_tok_s"])}</td></tr>'
+                        for c in (best or {}).get('cases', []))
+        case_head = ('<h2>Best engine by case</h2><div class="scroll"><table><tr><th>prompt tokens</th><th>prefill '
+                     'speedup</th><th>decode speedup</th><th>time to first token, ms (engine / reference)</th><th>decode '
+                     'tok/s (engine / reference)</th></tr>')
+        objective = (f'Objective: prefill weight {data["objective"]["prefill"]:g}, decode weight '
+                     f'{data["objective"]["decode"]:g}.')
+        segment_text = lambda b: f"prefill {_x(b['segments']['prefill'])}, decode {_x(b['segments']['decode'])}"
+        segment_cells = lambda r: f'<td>{_x(r["prefill"])}</td><td>{_x(r["decode"])}</td>'
+        segment_heads = '<th>prefill</th><th>decode</th>'
+
     def outcome(r):
         if r['kind'] == 'final':
             return ('ok', 'passed') if r['passed'] else ('no', 'failed')
@@ -245,14 +301,10 @@ def render(data: dict) -> str:
     rows = ''.join(
         f'<tr><td>{e(r["round"])}</td><td>{e(r["kind"])}</td><td>{e(r["base_round"] or "")}</td>'
         f'<td>{_n(r["ended_min"])}</td><td class="{outcome(r)[0]}">{outcome(r)[1]}</td><td>{e(r["reason"] or "")}</td>'
-        f'<td>{_x(r["score"])}</td><td>{_x(r["prefill"])}</td><td>{_x(r["decode"])}</td><td>{_n(r["session_min"])}</td>'
+        f'<td>{_x(r["score"])}</td>{segment_cells(r)}<td>{_n(r["session_min"])}</td>'
         f'<td>{_k(r["input_tokens"])} / {_k(r["output_tokens"])}</td><td>{_money(r["cost_usd"])}</td>'
         f'<td>{_n(r["dev_evals"])}</td><td>{_n(r["engine_lines"])} (+{_n(r["lines_added"])} '
         f'-{_n(r["lines_removed"])})</td><td>{e(r["failure_message"] or "")}</td></tr>' for r in data['history'])
-    cases = ''.join(f'<tr><td>{c["length"]:,}</td><td>{_x(c["prefill_speedup"])}</td><td>{_x(c["decode_speedup"])}</td>'
-                    f'<td>{_n(c["ttft_ms"])} / {_n(c["reference_ttft_ms"])}</td>'
-                    f'<td>{_n(c["decode_tok_s"])} / {_n(c["reference_decode_tok_s"])}</td></tr>'
-                    for c in (best or {}).get('cases', []))
     m = data['milestones']
     milestone_text = (
         f'First correct engine: {"round " + m["first_correct"]["round"] + " after " + _n(m["first_correct"]["minutes"]) + " min" if m["first_correct"] else "none yet"}. '
@@ -301,23 +353,20 @@ th {{ color: var(--muted); font-weight: 600; }}
 {e(str(data["evaluation_version"] or "unrecorded"))}{tensor_parallel(data.get("reference_tp"))} · started {_time(data["created"])} · updated {_time(data["updated"])}</div>
 <h2>Status</h2>
 <p>{e(status)}. {data["sessions"]} coding session(s). Best engine: {e(data["incumbent"] or "none yet")}
-{f"(score {_x(best['score'])}, prefill {_x(best['segments']['prefill'])}, decode {_x(best['segments']['decode'])})" if best else ""}.
+{f"(score {_x(best['score'])}, {segment_text(best)})" if best else ""}.
 Held-out final: {e(final_text)}.</p>
-<p class="muted">Speedups are reference time / engine time (higher is better). Objective: prefill weight
-{data["objective"]["prefill"]:g}, decode weight {data["objective"]["decode"]:g}. Decode:
+<p class="muted">Speedups are reference time / engine time (higher is better). {objective} Decode:
 {e(decode_rule(data.get("one_forward_per_token")))}.</p>
 <p class="muted">Natural-text speed: {e(natural_text(data["natural_speed"]))}. Decode probe:
 {e(probe_text(data["decode_probe"]))}; one forward pass per generated token keeps this near 1, speculative decoding
 raises it.</p>
 <p>{milestone_text}</p>
-<h2>Best engine by case</h2>
-<div class="scroll"><table><tr><th>prompt tokens</th><th>prefill speedup</th><th>decode speedup</th>
-<th>time to first token, ms (engine / reference)</th><th>decode tok/s (engine / reference)</th></tr>{cases}</table></div>
+{case_head}{cases}</table></div>
 {quality_html}
 <h2>Rounds</h2>
 <p class="muted">The same data, with every prompt length, is in history.csv next to this report.</p>
 <div class="scroll"><table><tr><th>round</th><th>kind</th><th>from</th><th>ended, min</th><th>outcome</th><th>reason</th>
-<th>score</th><th>prefill</th><th>decode</th><th>session min</th><th>tokens in / out</th><th>agent cost</th>
+<th>score</th>{segment_heads}<th>session min</th><th>tokens in / out</th><th>agent cost</th>
 <th>dev-evals</th><th>engine lines</th><th>failure</th></tr>{rows}</table></div>
 </body></html>
 '''
@@ -326,6 +375,7 @@ raises it.</p>
 def write(run) -> dict:
     data = build(run)
     (run.dir / 'report.json').write_text(json.dumps(data, indent=2, sort_keys=True))
-    (run.dir / 'history.csv').write_text(history_csv(data['history'], run.task.lengths))
+    (run.dir / 'history.csv').write_text(history_csv(data['history'], run.task.lengths,
+                                                      run.task.concurrent.levels if run.task.concurrent else None))
     (run.dir / 'report.html').write_text(render(data))
     return data

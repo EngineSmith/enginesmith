@@ -132,6 +132,36 @@ work leaks between timed requests.
 The memory watchdog kills registered engines when macOS reports critical memory pressure, and the run holds a
 `caffeinate` assertion against idle sleep.
 
+## Concurrent evaluation
+
+A concurrent task (`[workload] mode = "concurrent"`, `src/enginesmith/concurrent.py`, protocol 2) judges an engine
+that serves several independent requests at once. It measures what users of such an engine see; it does not require
+any technique: whether the engine batches requests, and how, is the engine's choice.
+
+1. **The request plan.** Per concurrency level C, `requests_per_level` requests, each with a prompt length and an
+   output length drawn log-uniformly from the task's ranges, request i assigned to client i mod C, and each client's
+   start time within `stagger`. The run draws one plan when it starts and uses it in every round, so that rounds and
+   candidates are compared on the same work; the final draws a new one. Every round draws fresh prompt windows
+   (nonce range), the final held-out ones.
+2. **Closed-loop clients.** At a level, C clients send their requests one after another: a client sends its next
+   request as soon as its last one has all its tokens. When requests arrive therefore depends on the engine's own
+   speed, as it does for real clients; the interleaving differs between engines and rounds and counts as timing
+   noise.
+3. **Rounds and judging.** As for single requests: controls first (each prompt alone), then paired rounds, the
+   reference first in even rounds; every request's stream compared with the reference's for the same round and, when
+   it differs, teacher-forced through the single-request reference and gated. The timed reference is the reference
+   library's own continuous-batching generator (mlx-lm's `BatchGenerator`, with `mlx_lm.server`'s settings).
+4. **Times.** The harness timestamps each request just before it writes it and each token when its line arrives. Per
+   level and round: throughput = the time from the first request to the last token; ttft = the 90th percentile over
+   the requests of the time to the first token; latency = the 90th percentile over the requests of the end-to-end time
+   divided by the output tokens (normalized latency). All three start at the request, so an engine gains nothing by
+   holding tokens back; the time per output token after the first, as the engine streamed them, and the gaps between
+   tokens are recorded but not scored, because an engine that sends a request's tokens in one line would make them
+   zero. Every token's time is kept in the evaluation's `traces/`.
+5. **Score and acceptance.** Per level and segment, the median over rounds of reference / candidate; the score is the
+   weighted geometric mean with level weights times segment weights; the acceptance rules are the single-request
+   ones, with levels in place of prompt lengths and throughput, ttft and latency in place of prefill and decode.
+
 ## Acceptance
 
 `src/enginesmith/acceptance.py`: the first passing candidate is accepted; afterwards a passing candidate replaces the
