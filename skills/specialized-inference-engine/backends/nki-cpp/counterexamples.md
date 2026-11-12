@@ -25,3 +25,8 @@ On the random-token timed prompts a draft-and-verify decoder looks far better th
 MATH-500 prompts against NxD Inference: Qwen3-0.6B harness 3.01x but real text 2.6x (a token-by-token engine already
 gives 2.5x); Qwen3-14B harness 4.65x -> 5.17x between two rounds while real-text speed fell 1.73x -> 1.64x. A
 speculation change is kept only if real-text generation speed (task accuracy, quality.py) improves.
+
+- **A DMA whose offset comes from SBUF (`scalar_offset` / `vector_offset`) can read the offset before the
+  instruction producing it has written it**, even when the producer is another DMA from a kernel input. On
+  DeepSeek-V4.1-Flash this read wrong expert weights, and caused NRT_EXEC_OOB crashes at random layers. Remove
+  run-time offsets from kernels, or compile one NEFF per offset choice.

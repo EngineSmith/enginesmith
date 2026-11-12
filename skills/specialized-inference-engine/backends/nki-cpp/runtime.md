@@ -74,3 +74,28 @@ A position chosen at run time needs dynamic indexing in NKI; not tried yet (`REA
 The runtime claims every NeuronCore it can see (`NEURON_RT_VISIBLE_CORES` limits that); a second process on the same
 cores fails with `Logical Neuron Core(s) not available ... (cores busy, ret=-16)`. Which cores are yours: `README.md`,
 hard rule 6. Never run two engines on one core.
+
+## LNC=2: per-token work runs twice unless you split it
+
+Measured on DeepSeek-V4.1-Flash (64 logical cores, LNC=2, 4-token prefill groups). A kernel compiled for LNC=2 runs
+on both physical cores of the logical core. GEMVs split by output tiles use both, but every step that is not
+split (indexer, attention core, norms, RoPE, residual rows) runs redundantly on both physical cores while the DMA
+idles. Give each physical core half of the tokens for those steps, and swap the rows the GEMVs need on both cores
+with `nisa.sendrecv`. Only the owner writes residual rows. Device time per layer kernel fell 16-26%
+(1107 -> 818 us, 808 -> 681 us). The arithmetic is unchanged, so tokens stay bitwise identical. Check a profile
+for long engine-busy, DMA-idle stretches that appear twice before assuming a kernel is compute-bound.
+
+## Host threads: wait with umwait, not pause loops
+
+With ~40 pipeline-stage threads idle at any moment, `pause` spin loops slowed the threads that were inside
+runtime calls on the same socket. A schedule call took 18.6 us alone and 30.4 us with 89 spinning threads.
+`umonitor`/`umwait` (`-mwaitpkg`, C0.1) on the queues the stage threads wait on cut decode by 10-12%
+(46.7-50.3 -> 42.8-44.7 ms/token). Apply it per wait and measure each one: on the expert workers' queues it made
+prefill slower. The cores that slept in C0.1 also made the first requests after idle slower, so add a self
+warm-up (below).
+
+## Warm up with real requests at load
+
+The first prompt requests of a process were 5-30% slower than later ones, and the harness times the request right
+after a single warm-up. Calling every NEFF once at load did not fix it. Two real requests before answering `hello`
+(about 300 + 8 and 1,100 + 2 tokens), then a reset, did: the first p256 went from 252 ms to 231 ms.
