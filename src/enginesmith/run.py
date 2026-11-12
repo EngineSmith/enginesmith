@@ -380,7 +380,7 @@ class Run:
         return Evaluator(brief.reference_argv(self.task), [str(engine), '--model', str(self.task.model)], plan,
                          directory, registry=self.registry, log=self.event, stop=stop,
                          reference_controls=self.dir / 'cache' / 'reference-controls.json',
-                         engine_cores=self.task.reference_tp)
+                         engine_cores=self.task.reference_tp, reference_on_device=not self.task.correctness_only)
 
     def _evaluate(self, record: dict) -> None:
         label = record['label']
@@ -496,7 +496,8 @@ class Run:
         engine = [str(self.round_dir(label) / 'engine'), '--model', str(self.task.model)]
         summary = quality.evaluate(settings, self.task.model, self.task.vocab_size, engine,
                                    brief.reference_argv(self.task), directory, registry=self.registry, stop=stop,
-                                   log=self.event, engine_cores=self.task.reference_tp)
+                                   log=self.event, engine_cores=self.task.reference_tp,
+                                   reference_on_device=not self.task.correctness_only)
         summary.update(round=label, harness=digest)
         (directory / 'summary.json').write_text(json.dumps(summary, indent=2))
         return summary
@@ -511,7 +512,8 @@ class Run:
             result = decode_probe.run([str(self.round_dir(label) / 'engine'), '--model', str(self.task.model)],
                                       self.task.vocab_size, min(self.task.lengths),
                                       max(self.task.output_tokens - 1, 2), directory, self.registry,
-                                      engine_cores=self.task.reference_tp)
+                                      engine_cores=self.task.reference_tp,
+                                      reference_on_device=not self.task.correctness_only)
         except Exception as exc:  # report-only, like task accuracy
             result = {'error': f'{type(exc).__name__}: {exc}'[:2000]}
             self.event(f'decode probe: failed: {exc}')

@@ -88,7 +88,8 @@ def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None) -
     controls = Path(info['brief']) / 'reference-controls.json'
     evaluator = Evaluator(info['reference'], [str(executable), '--model', str(task.model)], plan,
                           directory, registry=Registry(info['registry']), log=lambda m: print(m, flush=True),
-                          reference_controls=controls, engine_cores=task.reference_tp)
+                          reference_controls=controls, engine_cores=task.reference_tp,
+                          reference_on_device=not task.correctness_only)
     started = time.time()
     with gpu_lock():
         try:

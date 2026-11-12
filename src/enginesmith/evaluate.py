@@ -91,9 +91,10 @@ def allowed(steps: int, percent: int) -> int:
 class Evaluator:
     def __init__(self, reference_argv, candidate_argv, plan: Plan, directory: Path, *, registry: Registry | None = None,
                  log=lambda message: None, stop=lambda: False, reference_controls: Path | None = None,
-                 engine_cores: int = 1):
+                 engine_cores: int = 1, reference_on_device: bool = True):
         self.reference_argv, self.candidate_argv, self.plan = list(reference_argv), list(candidate_argv), plan
         self.engine_cores = engine_cores  # the candidate gets the accelerator cores the reference generates on
+        self.reference_on_device = reference_on_device  # False: a correctness-only reference, on the host
         self.directory, self.registry, self.log, self.stop = Path(directory), registry, log, stop
         self.reference_controls = reference_controls
         self.timed = [c for c in plan.cases if c.timed]
@@ -113,7 +114,8 @@ class Evaluator:
         argv = self.reference_argv if role == 'reference' else self.candidate_argv
         engine = Engine(argv, scratch=self.directory / 'scratch' / f'{self.sessions:03d}-{role}-{label}',
                         label=role, registry=self.registry,
-                        engine_cores=None if role == 'reference' else self.engine_cores)
+                        engine_cores=None if role == 'reference' else self.engine_cores,
+                        reference_on_device=self.reference_on_device)
         try:
             self.load_ms[role].append(engine.hello(HELLO_TIMEOUT))
         except EngineFailure as exc:

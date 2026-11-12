@@ -91,7 +91,7 @@ AMD are unchanged."""
 [[versions]]
 version = 4
 date = "2026-11-09"
-fingerprint = "b86ed0705f51e205762d2937858ecaae71d9050a8636fc735439a6fbb88098fe"
+fingerprint = "32a105ad6b7dc3a3aa692af4b8e9cef7cea9c06249182d77a3b24c9ebf9196d0"
 changes = """Adds a correctness-only reference for models no framework runs correctly on a platform: stock transformers on \
 the host CPU in bf16 (transformers_cpu; generate is model.generate, judge teacher-forces through it), and lets a \
 custom reference command declare itself correctness-only; such a task reports no speedup and scores the weighted \

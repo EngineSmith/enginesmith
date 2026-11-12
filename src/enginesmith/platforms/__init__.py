@@ -17,7 +17,7 @@ A platform is a module in this package that defines:
 
 and may define:
 
-    engine_environment(engine_cores=None) -> dict
+    engine_environment(engine_cores=None, reference_on_device=True) -> dict
                                                variables every engine and reference process gets (for example the
                                                accelerator cores it may use: engine_cores, the reference's
                                                tensor-parallel degree, for an engine; none for a reference); absent:

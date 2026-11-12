@@ -106,21 +106,24 @@ def memory_critical() -> bool:
     return bool(total and available is not None and available < total * 0.03)
 
 
-def engine_environment(engine_cores: int | None = None) -> dict:
+def engine_environment(engine_cores: int | None = None, reference_on_device: bool = True) -> dict:
     """The NeuronCores a process may use (the Neuron runtime otherwise claims every core it can see). The run has
     ENGINESMITH_NEURON_CORES logical cores (default 2) from ENGINESMITH_NEURON_CORE (default 0): with a reference of
     tensor-parallel degree N, 2N of them. The reference sees all of them (it generates on the first N and judges on
-    the next N); an engine (engine_cores = N) sees only the first N, the cores the reference generates on. Runs
+    the next N); an engine (engine_cores = N) sees only the first N, the cores the reference generates on. A
+    correctness-only reference runs on the host (reference_on_device False), so the run then needs only N. Runs
     started with different values can share the machine."""
     base, count = (os.environ.get(name, default) for name, default in
                    (('ENGINESMITH_NEURON_CORE', '0'), ('ENGINESMITH_NEURON_CORES', '2')))
     if not base.isdigit() or not count.isdigit() or int(count) < 1:
         raise ValueError(f'ENGINESMITH_NEURON_CORE and ENGINESMITH_NEURON_CORES must be numbers, not {base!r}, '
                          f'{count!r}')
-    if engine_cores and 2 * engine_cores > int(count):
+    if engine_cores and (2 if reference_on_device else 1) * engine_cores > int(count):
         # The reference judges on the N cores after the engine's; with fewer it would take another run's.
-        raise ValueError(f'the run needs {2 * engine_cores} NeuronCores (twice the reference\'s tensor-parallel degree '
-                         f'{engine_cores}) but ENGINESMITH_NEURON_CORES is {count}')
+        needed = (2 if reference_on_device else 1) * engine_cores
+        raise ValueError(f'the run needs {needed} NeuronCores (the reference\'s tensor-parallel degree {engine_cores}'
+                         f'{", twice: the reference judges on the cores after them" if reference_on_device else ""}) '
+                         f'but ENGINESMITH_NEURON_CORES is {count}')
     first = int(base)
     last = first + (engine_cores or int(count)) - 1
     return {'NEURON_RT_VISIBLE_CORES': f'{first}-{last}' if last > first else str(first)}
