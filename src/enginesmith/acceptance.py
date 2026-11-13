@@ -1,7 +1,10 @@
 """The score and the acceptance rules. Pure functions: no process, clock or file access.
 
 A row is one timed case: (case_id, length, prefill_speedup, decode_speedup), where a speedup is the median over the
-evaluation's paired rounds of reference time / candidate time (higher is better).
+evaluation's paired rounds of reference time / candidate time (higher is better). With a correctness-only reference
+the row holds the fractions of the hardware bound instead, the median of bound time / candidate time
+(evaluate.rows); the rules are the same, and since they compare two candidates' rows case by case, each case's
+bound cancels.
 """
 from __future__ import annotations
 

@@ -41,6 +41,13 @@ REFUSED = ('libpython', 'libtorch', 'libc10', 'librocblas', 'libhipblas', 'libMI
            'libcomposable_kernel', 'libck', 'libaiter', 'librocsolver', 'libhipsolver', 'librocfft', 'libhipfft',
            'librocsparse', 'libhipsparse', 'libmigraphx', 'librocrand', 'libhiprand')
 
+# AMD Instinct MI325X: about 4.4 TB/s, the streaming read of multi-GB buffers measured in the skill backend
+# (backends/hip-rust/README.md, "Measured platform numbers"), and about 1.3 PFLOP/s of dense BF16, AMD's specification
+# (1307.4 TFLOPS; an estimate, not measured).
+MI325X = {'bandwidth': 4.4e12, 'compute': 1.3e15,
+          'source': 'AMD Instinct MI325X: 4.4 TB/s measured streaming read (skill backend hip-rust), 1.3 PFLOP/s dense '
+                    'BF16 from AMD\'s specification (estimate)'}
+
 
 def _run(argv, timeout=20) -> str | None:
     try:
@@ -187,6 +194,14 @@ def memory_critical() -> bool:
         return True
     gpus = visible_gpus()
     return bool(gpus) and bool(gpus[0]['vram_total']) and (gpus[0]['vram_used'] or 0) > gpus[0]['vram_total'] * 0.98
+
+
+def peak(cores: int = 1) -> dict | None:
+    """The first visible GPU's memory bandwidth (bytes/s) and dense BF16 compute (FLOP/s), on the GPUs with figures.
+    Engines are single-GPU, so cores does not change them."""
+    gpus = visible_gpus()
+    name = (_product_names().get(gpus[0]['pci_bus']) or gpus[0]['name'] or '') if gpus else ''
+    return MI325X if 'MI325X' in name else None
 
 
 def keep_awake() -> subprocess.Popen | None:

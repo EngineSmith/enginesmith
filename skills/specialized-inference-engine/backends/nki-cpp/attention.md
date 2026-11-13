@@ -75,3 +75,27 @@ iteration's DMA and compute do not overlap the next.
   more precise than the ScalarE table.
 - A small NEFF has 12 to 23 us of fixed device time around its body (semaphores, activation-table load): another
   reason to fuse a whole layer or step into one NEFF.
+
+## Use an exact exp for the softmax probabilities (DeepSeek-V4.1-Flash, measured)
+
+The attention core computed p = exp(s - block max) with the hardware's table exp, rounded p to bf16 for P.V and
+summed the table-exp p for the denominator; the official code does the same steps with an exact fp32 exp. That put
+a relative error of about 1.2e-3 (median over prompt positions) into layer 0's attention output, which the MoE half
+amplified about 6x, while the CPU reference's own run-to-run drift there is about 0. On a model whose expert routing
+has near-ties (6th and 7th experts 0.03% apart), the extra drift was enough to flip a routing choice three layers
+later and produce a token the reference ranks 8,657th, which the correctness gate rejects. Using the precise exp
+(`exp_precise` in that engine's kernel library) for p alone removed the layer-0 error (median 1e-6..5e-5). Use an
+exact exp wherever the reference does, measure each one against the reference rather than against a run of the same
+engine, and check its cost: a table exp that is fast enough for a dense model can be the difference between passing
+and failing the gates on an MoE model. Measured end to end on the same engine (evaluation version 4): mismatching
+steps 6.2% -> 4.0% and worst rank 101 -> 4 in the evaluation, which then passed; the held-out final still failed one
+step at rank 1,481 (another routing near-tie, 4.9% of steps overall against 6.5% before). The exact exp is necessary,
+not sufficient: look for the remaining drift too (prefill first, it feeds every later position through the KV cache).
+
+How far to chase the drift: measure the reference against itself first (the same reference at two thread counts).
+On DeepSeek-V4.1-Flash, after the exact exp the engine's layer-0 output matched the reference bit for bit at most
+prompt positions; the rest of its drift had the same size as the reference's own 32-vs-48-thread drift. About 1 in 16
+bf16 values that the model quantizes to fp8 sits exactly on an fp8 rounding tie, so a 1-ulp difference from fp32
+accumulation order (TensorE PSUM against the CPU's BLAS) moves that element a whole fp8 step (6-12%). The reference
+does the same between its own thread counts. Once the engine is inside that noise class, further exactness only
+comes from reproducing the reference's accumulation order; spend the time on speed instead.

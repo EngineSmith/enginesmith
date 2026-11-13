@@ -1,10 +1,12 @@
 import json
+import statistics
+from dataclasses import replace
 
 import pytest
 
 from conftest import VOCAB, fake_engine
-from enginesmith import workload
-from enginesmith.evaluate import Evaluator, Plan, ReferenceFailed
+from enginesmith import acceptance, bound, workload
+from enginesmith.evaluate import Evaluator, Plan, ReferenceFailed, rows
 from enginesmith.task import Gates, Objective
 
 
@@ -84,3 +86,26 @@ def test_a_low_ranked_mismatching_token_fails_however_few(tmp_path):
     assert not result['passed'] and result['failure']['streams'][0]['worst_rank'] == 11
     assert evaluate(tmp_path / 'c', '--wrong-from', '7', reference=('--reference', '--rank', '5000'),
                     gates=Gates(30, 30, 0))['passed']
+
+
+def test_a_correctness_only_reference_scores_the_fraction_of_the_hardware_bound(tmp_path):
+    bounds = {64: {'prefill_ms': 0.5, 'decode_ms': 7.0, 'reason': None},
+              1024: {'prefill_ms': None, 'decode_ms': None, 'reason': 'a hybrid model'}}
+    result = Evaluator(fake_engine('--reference'), fake_engine('--speed', '2'),
+                       replace(plan(), correctness_only=True, bounds=bounds), tmp_path / 'eval').run()
+    assert result['passed'] and result['correctness_only']
+    assert all(c['prefill_speedup'] is None and c['decode_speedup'] is None for c in result['cases'])
+    short, long = result['cases']
+    candidate = lambda case, segment: case[f'{segment}_ms']['candidate']
+    assert short['decode_fraction'] == pytest.approx(statistics.median(7.0 / t for t in candidate(short, 'decode')))
+    assert short['prefill_bound_ms'] == 0.5 and long['prefill_bound_ms'] is None
+    # Where the bound is not computed, a nominal one: per prefill request, and per decode token (7 here).
+    assert long['bound_reason'] == 'a hybrid model' and long['decode_fraction'] == pytest.approx(
+        statistics.median(7 * bound.NOMINAL_MS / t for t in candidate(long, 'decode')))
+    assert rows(result)[0] == ('p64', 64, short['prefill_fraction'], short['decode_fraction'])
+    assert result['score'] == pytest.approx(acceptance.score(rows(result), plan().objective))
+    # Other tasks keep the speedups and record the fraction only where the bound is computed.
+    other = Evaluator(fake_engine('--reference'), fake_engine('--speed', '2'), replace(plan(), bounds=bounds),
+                      tmp_path / 'other').run()
+    assert other['cases'][0]['decode_speedup'] > 1 and other['cases'][0]['decode_fraction']
+    assert other['cases'][1]['decode_fraction'] is None and rows(other)[0][2] == other['cases'][0]['prefill_speedup']

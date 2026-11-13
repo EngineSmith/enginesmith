@@ -139,6 +139,16 @@ def test_explain_prints_the_plan_from_the_task(tmp_path, model_dir, capsys):
         capsys.readouterr().out)
 
 
+def test_the_plan_of_a_correctness_only_task_shows_the_bound_not_a_speedup(tmp_path, model_dir, capsys):
+    path = write_task(tmp_path, model_dir, reference={'correctness_only': True, 'frameworks': 'NxD Inference fails'})
+    assert cli.main(['explain', str(path)]) == 0
+    plan = capsys.readouterr().out
+    assert 'frameworks tried on this platform: NxD Inference fails' in plan
+    assert plan.count('speedup') == 1 and 'no speedup is reported' in plan
+    assert 'fraction(c, s) = median over the paired rounds of bound time / engine time' in plan
+    assert '| 64 | not computed (config.json states no layers, attention heads or head size) |' in plan
+
+
 def test_a_run_needs_a_current_plan(tmp_path, model_dir, capsys):
     path = write_task(tmp_path, model_dir)
     assert cli.main(['run', str(path), '--runs-dir', str(tmp_path / 'runs')]) == 2

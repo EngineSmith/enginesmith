@@ -22,6 +22,11 @@ ALLOWED = {'libc', 'libm', 'libdl', 'libpthread', 'librt', 'libutil', 'libgcc_s'
 REFUSED = ('libpython', 'libtorch', 'libc10', 'libneuronxla', 'libxla', 'libjax', 'libvllm', 'libtensorflow',
            'libonnxruntime', 'libggml', 'libllama')
 
+# Trainium2 per chip, from the public Neuron documentation (https://awsdocs-neuron.readthedocs-hosted.com/en/latest/
+# about-neuron/arch/neuron-hardware/trainium2.html): 2.9 TB/s of HBM bandwidth and 667 dense BF16 TFLOPS, over 8
+# physical NeuronCores. A logical NeuronCore at the default LNC=2 has a quarter: 725 GB/s and about 167 TFLOPS.
+TRN2_CHIP = {'bandwidth': 2.9e12, 'compute': 667e12, 'physical_cores': 8}
+
 
 def _run(argv, timeout=20) -> str | None:
     try:
@@ -101,27 +106,42 @@ def memory_critical() -> bool:
     return bool(total and available is not None and available < total * 0.03)
 
 
-def engine_environment(engine_cores: int | None = None) -> dict:
+def engine_environment(engine_cores: int | None = None, reference_on_device: bool = True) -> dict:
     """The NeuronCores a process may use (the Neuron runtime otherwise claims every core it can see). The run has
     ENGINESMITH_NEURON_CORES logical cores (default 2) from ENGINESMITH_NEURON_CORE (default 0): with a reference of
     tensor-parallel degree N, 2N of them. The reference sees all of them (it generates on the first N and judges on
-    the next N); an engine (engine_cores = N) sees only the first N, the cores the reference generates on. Runs
+    the next N); an engine (engine_cores = N) sees only the first N, the cores the reference generates on. A
+    correctness-only reference runs on the host (reference_on_device False), so the run then needs only N. Runs
     started with different values can share the machine."""
     base, count = (os.environ.get(name, default) for name, default in
                    (('ENGINESMITH_NEURON_CORE', '0'), ('ENGINESMITH_NEURON_CORES', '2')))
     if not base.isdigit() or not count.isdigit() or int(count) < 1:
         raise ValueError(f'ENGINESMITH_NEURON_CORE and ENGINESMITH_NEURON_CORES must be numbers, not {base!r}, '
                          f'{count!r}')
-    if engine_cores and 2 * engine_cores > int(count):
+    if engine_cores and (2 if reference_on_device else 1) * engine_cores > int(count):
         # The reference judges on the N cores after the engine's; with fewer it would take another run's.
-        raise ValueError(f'the run needs {2 * engine_cores} NeuronCores (twice the reference\'s tensor-parallel degree '
-                         f'{engine_cores}) but ENGINESMITH_NEURON_CORES is {count}')
+        needed = (2 if reference_on_device else 1) * engine_cores
+        raise ValueError(f'the run needs {needed} NeuronCores (the reference\'s tensor-parallel degree {engine_cores}'
+                         f'{", twice: the reference judges on the cores after them" if reference_on_device else ""}) '
+                         f'but ENGINESMITH_NEURON_CORES is {count}')
     first = int(base)
     last = first + (engine_cores or int(count)) - 1
     return {'NEURON_RT_VISIBLE_CORES': f'{first}-{last}' if last > first else str(first)}
 
 
 BUSY = (b'Failed to initialize NRT runtime', b'cores busy', b'Logical Neuron Core(s) not available')
+
+
+def peak(cores: int = 1) -> dict | None:
+    """Trainium2's memory bandwidth (bytes/s) and dense BF16 compute (FLOP/s) for cores logical NeuronCores."""
+    first = next(iter(_neuron_ls()), {})
+    if not str(first.get('instance_type') or '').startswith('trn2'):
+        return None
+    lnc = first.get('logical_neuroncore_config') or 2
+    share = cores * lnc / TRN2_CHIP['physical_cores']
+    return {'bandwidth': TRN2_CHIP['bandwidth'] * share, 'compute': TRN2_CHIP['compute'] * share,
+            'source': f'Trainium2 vendor figures (Neuron documentation): 2.9 TB/s and 667 dense BF16 TFLOPS per chip '
+                      f'of 8 physical NeuronCores, here {cores} logical core(s) at LNC={lnc}'}
 
 
 def busy_accelerator(log_tail: bytes) -> bool:

@@ -19,7 +19,7 @@ docs, tests) is in the open zone.
 
 | zone | what it is | where | who changes it | a pull request needs |
 |---|---|---|---|---|
-| **Judging** | what decides whether a candidate is correct and faster: the workload and the held-out prompts, the engine protocol and its timing, the gates, the score, the acceptance rules, the references, and the judging defaults in `task.py` (`Gates`, `Acceptance`, `Evaluation`) | `workload.py`, `protocol.py`, `evaluate.py`, `acceptance.py`, `references/<name>.py` | the maintainers, after an issue (template: "Change to the judging rules") | the agreement in the issue, evidence, and a new evaluation version |
+| **Judging** | what decides whether a candidate is correct and faster: the workload and the held-out prompts, the engine protocol and its timing, the gates, the score, the acceptance rules, the references, and the judging defaults in `task.py` (`Gates`, `Acceptance`, `Evaluation`) | `workload.py`, `protocol.py`, `evaluate.py`, `acceptance.py`, `bound.py`, `references/<name>.py` | the maintainers, after an issue (template: "Change to the judging rules") | the agreement in the issue, evidence, and a new evaluation version |
 | **Core** | everything else that runs: rounds, snapshots and builds, sessions, processes and the memory watchdog, the commands, plans, reports, sharing, task accuracy, the task schema, the platform and reference interfaces | the rest of `src/enginesmith` | anyone; the maintainers review | tests; an issue first for a new feature |
 | **Open** | additions that change nothing that exists: platform modules, skill knowledge, worked examples, whole skills, documentation | `platforms/<name>.py`, `skills/`, `docs/` | anyone | the evidence its section below asks for |
 | **Vendored** | third-party code, kept unmodified | `src/enginesmith/third_party/` | nobody edits it | a replacement by an upstream release |
@@ -78,7 +78,8 @@ described in the README ("Share an engine, check someone else's").
 | `protocol.py` | the engine protocol client and its timing (`docs/protocol.md`) | judging |
 | `evaluate.py` | controls, paired AB/BA rounds, teacher-forced judging, gates, speedups, `EVALUATION_VERSION` | judging |
 | `acceptance.py` | the score and the acceptance rules | judging |
-| `references/<name>.py` | a reference implementation behind the engine protocol (today `mlx_lm.py`, `sglang.py`, `nxdi.py`) | judging |
+| `bound.py` | the hardware bound of each case, the score of a task with a correctness-only reference (`docs/task.md`) | judging |
+| `references/<name>.py` | a reference implementation behind the engine protocol (today `mlx_lm.py`, `sglang.py`, `nxdi.py`, and the correctness-only `transformers_cpu.py`) | judging |
 | `task.py` | the task file schema (`docs/task.md`); its `Gates`, `Acceptance` and `Evaluation` defaults count as judging | core |
 | `run.py`, `engine_repo.py`, `agents.py`, `brief.py`, `processes.py` | rounds, snapshots and builds, sessions, the session brief, processes and the watchdog | core |
 | `cli.py`, `setup_tools.py`, `dev_eval.py`, `explain.py`, `report.py`, `share.py`, `quality.py` | the commands | core |
@@ -115,6 +116,10 @@ Start from a copy of `platforms/generic.py`, which is the smallest complete impl
 | `keep_awake()` | keep the machine from sleeping while the run's process lives, or `None` | `systemd-inhibit`, or `None` on servers |
 | `ALLOWED` | the set of libraries an engine may link, by the rule of [docs/libraries.md](docs/libraries.md): the system and C/C++ runtimes, the accelerator's driver and runtime layer, utilities that do no arithmetic on the model | `libc`, `libstdc++`, `libcuda`, `libcudart`, ...; not cuBLAS, cuDNN or TensorRT |
 | `native_problem(path)` | `None` when `path` is a self-contained native executable that links only `ALLOWED`, else why not; it must refuse scripts and every library outside `ALLOWED` (an allow-list, never a list of refused names) | ELF magic, then the direct dependencies (`DT_NEEDED`, as `linux_rocm.py` reads them) |
+
+A module may also define `peak(cores)`, the memory bandwidth and peak dense BF16 compute of the cores an engine uses,
+for the hardware bound (`docs/task.md`): a figure you measured on the machine (in the skill backend) or the vendor's
+specification marked as an estimate, with its source named next to the constant.
 
 `tests/test_platforms.py` checks every module in `PLATFORMS` against this interface, and that `ALLOWED` equals the
 "Allowed" table of the platform's section in [docs/libraries.md](docs/libraries.md). The pull request adds that
@@ -162,6 +167,25 @@ Validate it on the platform, and put the evidence in the pull request:
 
 If the library cannot be made deterministic for greedy decoding (batch-dependent kernels, atomics), say so: the gates
 assume that the reference agrees with itself.
+
+#### A correctness-only reference
+
+When no framework runs a model correctly on a platform, a task may judge correctness against a computation of the
+checkpoint on the host CPU (`transformers_cpu.py`, or a custom command) and declare it correctness-only: its times are
+no speed baseline, and the task scores the fraction of the hardware bound (`docs/task.md`). A pull request or a task
+that uses one brings this evidence:
+
+1. The framework survey, in the task's `[reference] frameworks` and in the pull request: every framework tried on the
+   platform, with its version, and how it failed (an error, or tokens that differ: the first wrong step and its
+   margin against the CPU computation at a few prompt lengths).
+2. Agreement with an independent computation: another implementation, compiler or device that runs the same model
+   (for example PyTorch/XLA on the accelerator with the same modeling code) agrees with the CPU reference token for
+   token up to near-ties, where a margin of a fraction of a logit is bf16 rounding and several logits a wrong
+   computation.
+3. Determinism, as for any reference: its `generate` equals `model.generate` at prompt lengths from 1 up to the
+   task's longest; a split request and chained continuations equal one request; the same request twice gives the
+   same tokens; `judge` on its own tokens reports 0 mismatches.
+4. Its cost: prefill and decode times at the task's lengths and the length of one evaluation on the host CPU.
 
 ### 3. A skill backend: `skills/specialized-inference-engine/backends/<name>/`
 
