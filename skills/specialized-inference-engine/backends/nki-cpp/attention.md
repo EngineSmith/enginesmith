@@ -75,3 +75,16 @@ iteration's DMA and compute do not overlap the next.
   more precise than the ScalarE table.
 - A small NEFF has 12 to 23 us of fixed device time around its body (semaphores, activation-table load): another
   reason to fuse a whole layer or step into one NEFF.
+
+## Use an exact exp for the softmax probabilities (DeepSeek-V4.1-Flash, measured)
+
+The attention core computed p = exp(s - block max) with the hardware's table exp, rounded p to bf16 for P.V and
+summed the table-exp p for the denominator; the official code does the same steps with an exact fp32 exp. That put
+a relative error of about 1.2e-3 (median over prompt positions) into layer 0's attention output, which the MoE half
+amplified about 6x, while the CPU reference's own run-to-run drift there is about 0. On a model whose expert routing
+has near-ties (6th and 7th experts 0.03% apart), the extra drift was enough to flip a routing choice three layers
+later and produce a token the reference ranks 8,657th, which the correctness gate rejects. Using the precise exp
+(`exp_precise` in that engine's kernel library) for p alone removed the layer-0 error (median 1e-6..5e-5). Use an
+exact exp wherever the reference does, measure each one against the reference rather than against a run of the same
+engine, and check its cost: a table exp that is fast enough for a dense model can be the difference between passing
+and failing the gates on an MoE model.
