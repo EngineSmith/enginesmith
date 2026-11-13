@@ -39,3 +39,23 @@ Extra low-precision copies count the same way. An fp8 copy of the weights used a
 head that screens candidates before an exact rescore, are both reported separately and do not enter the project's
 results: only engines whose every weight in use is the checkpoint's bf16 (in any layout) count. Draft with the model
 itself (prompt lookup, n-gram) instead.
+
+## Decode GEMVs: TensorE column tiling (gpt-oss-20b, measured)
+
+An activation-stationary GEMV uses 1 of the 128 PE columns. `nc_matmul(..., tile_position=(0, 32 * c),
+tile_size=(128, 32))` runs up to 4 matmuls with stationaries of at most 32 columns in parallel on the 4 column
+groups, the technique of AWS nkilib's MoE token-generation kernels. Give each column tile different output columns and
+accumulate over the contraction in the same order as before: every output stays bitwise identical. Pad the
+stationary x to 32 columns with zeros (x in column 0) so all 32 PSUM rows are written; the PSUM copy and the
+exact fp32 transposes back then never read uninitialised data. On gpt-oss-20b (4 logical cores, MXFP4 experts),
+the 4 experts' gate/up went from 30.8 us to about 8 us of TensorE. Applied to gate/up, down, QKV and o_proj, decode
+went from 300 to 248 ms per 64 tokens. Splitting the contraction over the tiles instead needs a cross-tile fp32 sum
+and gave only 2x.
+
+The LM head works the same way: the hidden vector stationary, 4 vocab tiles streaming as moving operands in the 4
+column groups, one exact transpose per group. 4,600 one-column weight-stationary matmuls became 1,150 rounds of 4,
+and the head became DMA-bound (about 620 -> 500 us).
+
+For the router's top-k use `max8` (the 8 largest, descending) and `nc_find_index8` (duplicates get ascending
+positions, so ties go to the lowest expert id, as a reduce/compare loop would). Router plus top-4 went from about 13
+to 7 us per layer.
