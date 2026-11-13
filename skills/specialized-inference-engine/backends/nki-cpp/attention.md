@@ -91,3 +91,11 @@ and failing the gates on an MoE model. Measured end to end on the same engine (e
 steps 6.2% -> 4.0% and worst rank 101 -> 4 in the evaluation, which then passed; the held-out final still failed one
 step at rank 1,481 (another routing near-tie, 4.9% of steps overall against 6.5% before). The exact exp is necessary,
 not sufficient: look for the remaining drift too (prefill first, it feeds every later position through the KV cache).
+
+How far to chase the drift: measure the reference against itself first (the same reference at two thread counts).
+On DeepSeek-V4.1-Flash, after the exact exp the engine's layer-0 output matched the reference bit for bit at most
+prompt positions; the rest of its drift had the same size as the reference's own 32-vs-48-thread drift. About 1 in 16
+bf16 values that the model quantizes to fp8 sits exactly on an fp8 rounding tie, so a 1-ulp difference from fp32
+accumulation order (TensorE PSUM against the CPU's BLAS) moves that element a whole fp8 step (6-12%). The reference
+does the same between its own thread counts. Once the engine is inside that noise class, further exactness only
+comes from reproducing the reference's accumulation order; spend the time on speed instead.
