@@ -87,4 +87,7 @@ later and produce a token the reference ranks 8,657th, which the correctness gat
 (`exp_precise` in that engine's kernel library) for p alone removed the layer-0 error (median 1e-6..5e-5). Use an
 exact exp wherever the reference does, measure each one against the reference rather than against a run of the same
 engine, and check its cost: a table exp that is fast enough for a dense model can be the difference between passing
-and failing the gates on an MoE model.
+and failing the gates on an MoE model. Measured end to end on the same engine (evaluation version 4): mismatching
+steps 6.2% -> 4.0% and worst rank 101 -> 4 in the evaluation, which then passed; the held-out final still failed one
+step at rank 1,481 (another routing near-tie, 4.9% of steps overall against 6.5% before). The exact exp is necessary,
+not sufficient: look for the remaining drift too (prefill first, it feeds every later position through the KV cache).
