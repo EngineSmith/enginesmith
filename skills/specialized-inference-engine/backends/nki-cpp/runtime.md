@@ -94,6 +94,15 @@ runtime calls on the same socket. A schedule call took 18.6 us alone and 30.4 us
 prefill slower. The cores that slept in C0.1 also made the first requests after idle slower, so add a self
 warm-up (below).
 
+## Do not confine the engine's host threads to one NUMA node
+
+On trn2.48xlarge the 16 Neuron devices sit on both NUMA nodes (devices 0-3 on node 1, others on node 0; `neuron-ls`
+shows each device's CPU affinity). Running the whole evaluation in a cgroup limited to node 1's 96 logical CPUs,
+shared with a 48-thread CPU reference, made the DeepSeek-V4.1-Flash engine's decode 7x slower (291 against 40 ms per
+token) and prefill 1.9x slower; the correctness results were identical. If the CPU reference needs pinning, pin only
+its process (`taskset -a -p` on each reference process, which is new for every timed round) and leave the engine's
+threads free. Pinning a fixed-thread-count reference does not change its numerics.
+
 ## Warm up with real requests at load
 
 The first prompt requests of a process were 5-30% slower than later ones, and the harness times the request right

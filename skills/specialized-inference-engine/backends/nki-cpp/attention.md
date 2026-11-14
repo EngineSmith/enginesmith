@@ -88,9 +88,12 @@ later and produce a token the reference ranks 8,657th, which the correctness gat
 exact exp wherever the reference does, measure each one against the reference rather than against a run of the same
 engine, and check its cost: a table exp that is fast enough for a dense model can be the difference between passing
 and failing the gates on an MoE model. Measured end to end on the same engine (evaluation version 4): mismatching
-steps 6.2% -> 4.0% and worst rank 101 -> 4 in the evaluation, which then passed; the held-out final still failed one
-step at rank 1,481 (another routing near-tie, 4.9% of steps overall against 6.5% before). The exact exp is necessary,
-not sufficient: look for the remaining drift too (prefill first, it feeds every later position through the KV cache).
+steps 6.2% -> 4.0% and worst rank 101 -> 4 in the evaluation, which then passed. With the exact exp in the prefill
+attention only, the held-out final still failed one step at rank 1,481 (another routing near-tie, 4.9% of steps
+overall against 6.5% before); with it also in the decode-step attention (every term of the softmax: window,
+compressed keys and the sink), the held-out final passed: 5.7% of steps, at most 12 of 65 in one stream (13 allowed),
+worst rank 26, with no speed cost (decode 40.0-41.8 ms per token, the same as before). Apply it on every path that
+computes probabilities, not only the one where the drift was found.
 
 How far to chase the drift: measure the reference against itself first (the same reference at two thread counts).
 On DeepSeek-V4.1-Flash, after the exact exp the engine's layer-0 output matched the reference bit for bit at most
