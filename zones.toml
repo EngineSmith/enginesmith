@@ -25,6 +25,8 @@ files = [
     "src/enginesmith/cli.py",
     "src/enginesmith/decode_probe.py",
     "src/enginesmith/dev_eval.py",
+    "src/enginesmith/text_dataset.py",       # prepared natural-text development data and deterministic sampling
+    "src/enginesmith/text_dev_eval.py",      # opt-in diagnostics, excluded from formal scoring
     "src/enginesmith/engine_repo.py",
     "src/enginesmith/explain.py",
     "src/enginesmith/platforms/__init__.py",  # the platform interface

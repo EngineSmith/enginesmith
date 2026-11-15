@@ -188,3 +188,9 @@ uv run enginesmith --help
 ## License
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## Natural-text development diagnostics
+
+For speculative-decoding development, `dev-eval --text-dataset` accepts an explicitly prepared local natural-text
+corpus and reports separate per-length Prefill/Decode diagnostics. It does not change formal scoring or existing
+runs. See [preparation, sampling and result semantics](docs/natural-text-development.md).
