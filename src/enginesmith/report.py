@@ -20,14 +20,15 @@ FIELDS = ('round', 'kind', 'base_round', 'started_min', 'ended_min', 'session_mi
           'passed', 'score', 'prefill', 'decode', 'incumbent_score', 'agent_model', 'agent_effort', *agents.USAGE_KEYS,
           'cumulative_cost_usd', 'dev_evals', 'dev_evals_passed', 'engine_lines', 'lines_added', 'lines_removed',
           'changed_files')
-CASE_FIELDS = ('prefill_speedup', 'decode_speedup', 'ttft_ms', 'prefill_tok_s', 'decode_tok_s', 'reference_ttft_ms',
-               'reference_prefill_tok_s', 'reference_decode_tok_s', 'mismatches')
+CASE_FIELDS = ('prefill_speedup', 'decode_speedup', 'prefill_fraction', 'decode_fraction', 'ttft_ms', 'prefill_tok_s',
+               'decode_tok_s', 'decode_ms_per_token', 'reference_ttft_ms', 'reference_prefill_tok_s',
+               'reference_decode_tok_s', 'mismatches')
 
 
 def _speeds(case: dict) -> dict:
     """A case's speeds, medians over the paired rounds: the time to first token and prefill tokens per second from
-    the prefill request, decode tokens per second from the decode request (output_tokens - 1 tokens); the engine's,
-    then the reference's."""
+    the prefill request, decode tokens per second and ms per token from the decode request (output_tokens - 1 tokens);
+    the engine's, then the reference's."""
     out = {}
     for arm, prefix in (('candidate', ''), ('reference', 'reference_')):
         prefill = (case.get('prefill_ms') or {}).get(arm) or []
@@ -36,14 +37,42 @@ def _speeds(case: dict) -> dict:
         step = statistics.median(decode) / (case['output_tokens'] - 1) if decode and case['output_tokens'] > 1 else None
         out.update({f'{prefix}ttft_ms': round(ttft, 3) if ttft else None,
                     f'{prefix}prefill_tok_s': round(case['length'] * 1000 / ttft, 1) if ttft else None,
-                    f'{prefix}decode_tok_s': round(1000 / step, 1) if step else None})
+                    f'{prefix}decode_tok_s': round(1000 / step, 1) if step else None,
+                    f'{prefix}decode_ms_per_token': round(step, 3) if step else None})
     return out
 
 
 def _cases(result: dict | None) -> list[dict]:
+    """Per case the speedups, the fractions of the hardware bound where it is computed (a fraction against the
+    nominal bound is not reported), the mismatches and the speeds."""
     return [{'length': c['length'], 'prefill_speedup': c.get('prefill_speedup'),
-             'decode_speedup': c.get('decode_speedup'), 'mismatches': sum(c.get('mismatches') or []), **_speeds(c)}
+             'decode_speedup': c.get('decode_speedup'),
+             **{f'{s}_fraction': c.get(f'{s}_fraction') if c.get(f'{s}_bound_ms') else None
+                for s in ('prefill', 'decode')},
+             'bound_reason': c.get('bound_reason'), 'mismatches': sum(c.get('mismatches') or []), **_speeds(c)}
             for c in (result or {}).get('cases', [])]
+
+
+def fraction(value) -> str:
+    """A fraction of the hardware bound as a percentage, or 'not computed'."""
+    return f'{100 * value:.1f}%' if isinstance(value, (int, float)) else 'not computed'
+
+
+def bound_text(case: dict, output_tokens: int) -> str:
+    """One case's hardware bound (enginesmith.bound.case_bound): prefill ms and decode ms per token, or why not."""
+    prefill, decode = case.get('prefill_ms'), case.get('decode_ms')
+    text = ', '.join(([f'prefill {prefill:,.2f} ms'] if prefill is not None else [])
+                     + ([f'decode {decode / (output_tokens - 1):,.3f} ms per token'] if decode is not None else []))
+    return text + (f' (not computed: {case["reason"]})' if case.get('reason') else '') if text else \
+        f'not computed ({case.get("reason")})'
+
+
+def no_baseline(frameworks: str | None) -> str:
+    """What reports say instead of a speedup when the reference is correctness-only."""
+    return ('The reference decides correctness only and is no speed baseline (frameworks tried: '
+            f'{frameworks or "not recorded"}); the score is the weighted geometric mean of the fractions of the '
+            'hardware bound, bound time / engine time (a nominal bound where it is not computed, so then only a '
+            'relative measure)')
 
 
 def history(run) -> list[dict]:
@@ -135,7 +164,7 @@ def build(run) -> dict:
     best = run.evaluation(s['incumbent']) if s['incumbent'] else None
     return {'name': t.name, 'model': str(t.model), 'agent': t.agent, 'phase': s['phase'],
             'evaluation_version': s.get('evaluation_version'), 'one_forward_per_token': t.one_forward_per_token,
-            'reference_tp': t.reference_tp,
+            'reference_tp': t.reference_tp, 'correctness_only': t.correctness_only, 'frameworks': t.frameworks,
             'created': s['created'], 'deadline': s['deadline'], 'updated': time.time(),
             'search_end': s['search_end'], 'error': s['error'], 'sessions': s['sessions'],
             'current_round': s['current'], 'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
@@ -208,8 +237,12 @@ def _time(value) -> str:
     return time.strftime('%Y-%m-%d %H:%M', time.localtime(value)) if value else ''
 
 
-def _x(value) -> str:
+def _speedup(value) -> str:
     return f'{value:.3f}x' if isinstance(value, (int, float)) else '-'
+
+
+def _score(value) -> str:
+    return f'{value:.3f}' if isinstance(value, (int, float)) else '-'
 
 
 def _pct(value, error=None) -> str:
@@ -237,7 +270,8 @@ def tensor_parallel(degree) -> str:
 
 def render(data: dict) -> str:
     e = html.escape
-    best = data['best']
+    best, only = data['best'], data.get('correctness_only')
+    _x = _score if only else _speedup  # a correctness-only task has scores, not speedups
     def outcome(r):
         if r['kind'] == 'final':
             return ('ok', 'passed') if r['passed'] else ('no', 'failed')
@@ -249,15 +283,19 @@ def render(data: dict) -> str:
         f'<td>{_k(r["input_tokens"])} / {_k(r["output_tokens"])}</td><td>{_money(r["cost_usd"])}</td>'
         f'<td>{_n(r["dev_evals"])}</td><td>{_n(r["engine_lines"])} (+{_n(r["lines_added"])} '
         f'-{_n(r["lines_removed"])})</td><td>{e(r["failure_message"] or "")}</td></tr>' for r in data['history'])
-    cases = ''.join(f'<tr><td>{c["length"]:,}</td><td>{_x(c["prefill_speedup"])}</td><td>{_x(c["decode_speedup"])}</td>'
+    speedups = lambda c: '' if only else f'<td>{_x(c["prefill_speedup"])}</td><td>{_x(c["decode_speedup"])}</td>'
+    cases = ''.join(f'<tr><td>{c["length"]:,}</td>{speedups(c)}'
+                    f'<td>{fraction(c.get("prefill_fraction"))}</td><td>{fraction(c.get("decode_fraction"))}</td>'
                     f'<td>{_n(c["ttft_ms"])} / {_n(c["reference_ttft_ms"])}</td>'
+                    f'<td>{_n(c.get("decode_ms_per_token"))}</td>'
                     f'<td>{_n(c["decode_tok_s"])} / {_n(c["reference_decode_tok_s"])}</td></tr>'
                     for c in (best or {}).get('cases', []))
+    reasons = sorted({c['bound_reason'] for c in (best or {}).get('cases', []) if c.get('bound_reason')})
     m = data['milestones']
     milestone_text = (
         f'First correct engine: {"round " + m["first_correct"]["round"] + " after " + _n(m["first_correct"]["minutes"]) + " min" if m["first_correct"] else "none yet"}. '
-        f'Matched the reference (score 1.0): {"round " + m["reference_matched"]["round"] + " after " + _n(m["reference_matched"]["minutes"]) + " min" if m["reference_matched"] else "not yet"}. '
-        f'Agent: {e(agents.NAMES.get(m["agent"], m["agent"]))} {e(m["agent_version"] or "")}; '
+        + ('' if only else f'Matched the reference (score 1.0): {"round " + m["reference_matched"]["round"] + " after " + _n(m["reference_matched"]["minutes"]) + " min" if m["reference_matched"] else "not yet"}. ')
+        + f'Agent: {e(agents.NAMES.get(m["agent"], m["agent"]))} {e(m["agent_version"] or "")}; '
         f'model {e(", ".join(m["agent_models"]) or "not reported")}, reasoning effort '
         f'{e(", ".join(m.get("agent_efforts") or []) or "not reported")}; '
         f'tokens {_k(m["total_input_tokens"])} in, {_k(m["total_output_tokens"])} out, {_k(m["total_cache_read_tokens"])} '
@@ -303,7 +341,8 @@ th {{ color: var(--muted); font-weight: 600; }}
 <p>{e(status)}. {data["sessions"]} coding session(s). Best engine: {e(data["incumbent"] or "none yet")}
 {f"(score {_x(best['score'])}, prefill {_x(best['segments']['prefill'])}, decode {_x(best['segments']['decode'])})" if best else ""}.
 Held-out final: {e(final_text)}.</p>
-<p class="muted">Speedups are reference time / engine time (higher is better). Objective: prefill weight
+<p class="muted">{e(no_baseline(data.get("frameworks"))) + "." if only else "Speedups are reference time / engine time (higher is better)."}
+The fraction of the hardware bound is bound time / engine time{e(" (not computed: " + "; ".join(reasons) + ")") if reasons else ""}. Objective: prefill weight
 {data["objective"]["prefill"]:g}, decode weight {data["objective"]["decode"]:g}. Decode:
 {e(decode_rule(data.get("one_forward_per_token")))}.</p>
 <p class="muted">Natural-text speed: {e(natural_text(data["natural_speed"]))}. Decode probe:
@@ -311,8 +350,10 @@ Held-out final: {e(final_text)}.</p>
 raises it.</p>
 <p>{milestone_text}</p>
 <h2>Best engine by case</h2>
-<div class="scroll"><table><tr><th>prompt tokens</th><th>prefill speedup</th><th>decode speedup</th>
-<th>time to first token, ms (engine / reference)</th><th>decode tok/s (engine / reference)</th></tr>{cases}</table></div>
+<div class="scroll"><table><tr><th>prompt tokens</th>{"" if only else "<th>prefill speedup</th><th>decode speedup</th>"}
+<th>prefill, fraction of the bound</th><th>decode, fraction of the bound</th>
+<th>time to first token, ms (engine / reference)</th><th>decode ms per token</th>
+<th>decode tok/s (engine / reference)</th></tr>{cases}</table></div>
 {quality_html}
 <h2>Rounds</h2>
 <p class="muted">The same data, with every prompt length, is in history.csv next to this report.</p>

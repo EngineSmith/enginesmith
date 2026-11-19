@@ -7,6 +7,9 @@ library unmodified and reproduces that library's own generation path exactly. KI
 (`[reference] kind`) to the module and the Python package whose version identifies it. CONTRIBUTING.md says how to add
 one.
 
+A kind may be correctness-only (`correctness_only`): it decides what is correct but is no speed baseline, and a task
+that uses it scores the fraction of the hardware bound instead of a speedup (enginesmith.bound).
+
 A kind may name a container image through an environment variable (`image_env`): when the variable is set, the
 reference runs inside that image with Apptainer (`apptainer exec --rocm`), which is how SGLang is usually deployed on
 AMD GPUs, and its version is read inside the image.
@@ -30,6 +33,10 @@ KINDS = {
              'install': 'run `uv pip install --index-strategy unsafe-best-match --extra-index-url '
                         'https://pip.repos.neuron.amazonaws.com "neuronx-distributed-inference==0.10.18399+ed62453e" '
                         '"neuronx-cc==2.27.5334.0+f702b353" "islpy==2026.1" "numpy==2.3.5"`.'},
+    # For models the platform's own reference cannot run; on the host CPU, so its times are no speed baseline.
+    'transformers-cpu': {'module': 'enginesmith.references.transformers_cpu', 'package': 'transformers',
+                         'correctness_only': True,
+                         'install': 'run `uv pip install "transformers==5.15.0" "torch==2.11.0"`.'},
 }
 
 
@@ -50,11 +57,12 @@ def _in_image(image: str, argv: list[str]) -> list[str]:
 
 def command(kind: str, model: Path, max_length: int | None = None, tensor_parallel: int = 1) -> list[str]:
     """The reference's argv; max_length (the longest prompt plus its generated tokens) is passed to the kinds
-    that compile for a fixed length, a tensor-parallel degree above 1 to the kinds that support one."""
+    that compile for a fixed length, a tensor-parallel degree above 1 to the kinds that support one (for a
+    correctness-only kind it is the engine's cores only)."""
     argv = ['-m', KINDS[kind]['module'], '--model', str(Path(model).resolve())]
     if KINDS[kind].get('max_length') and max_length:
         argv += ['--max-length', str(max_length)]
-    if tensor_parallel > 1:
+    if KINDS[kind].get('tensor_parallel') and tensor_parallel > 1:
         argv += ['--tp', str(tensor_parallel)]
     image = _image(kind)
     return _in_image(image, argv) if image else [sys.executable, *argv]

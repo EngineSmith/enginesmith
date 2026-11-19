@@ -141,3 +141,23 @@ def test_share_reports_the_machine_and_reference_the_run_recorded(finished_run, 
     assert info['harness']['reference'] == 'sglang' and info['harness']['reference_version'] == '0.5.22'
     readme = (package / 'README.md').read_text()
     assert '## Speed against sglang' in readme and 'mlx-lm' not in readme and 'your own Mac' not in readme
+
+
+def test_a_correctness_only_run_reports_times_and_the_bound_not_a_speedup(tmp_path, model_dir, monkeypatch):
+    monkeypatch.setenv('FAKE_AGENT_PLAN', json.dumps({'001': ['--speed', '2']}))
+    frameworks = 'NxD Inference 0.10: wrong tokens from step 1'
+    task = load_task(write_task(tmp_path, model_dir, budget={'sessions': 1},
+                                reference={'correctness_only': True, 'frameworks': frameworks}))
+    run = Run.create(task, tmp_path / 'runs')
+    run.drive()
+    assert run.state['final']['passed'] and run.state['final']['score'] > 0
+    report = json.loads((run.dir / 'report.json').read_text())
+    assert report['correctness_only'] and report['best']['cases'][0]['prefill_speedup'] is None
+    # The test model has no safetensors: the score uses the nominal bound, and no fraction is reported.
+    assert report['best']['cases'][0]['decode_fraction'] is None and report['best']['cases'][0]['ttft_ms']
+    html = (run.dir / 'report.html').read_text()
+    assert 'no speed baseline' in html and 'prefill speedup' not in html and 'not computed' in html
+    share(run, out=tmp_path / 'out')
+    readme = (tmp_path / 'out' / 'test-task-round001' / 'README.md').read_text()
+    assert 'no framework baseline' in readme and frameworks in readme and 'Speed against' not in readme
+    assert 'x faster' not in readme and 'as fast as' not in readme and '| not computed | not computed |' in readme

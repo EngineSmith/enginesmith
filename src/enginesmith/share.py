@@ -23,7 +23,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from enginesmith import __version__, agents, decode_probe, engine_repo, references, report, workload
+from enginesmith import __version__, agents, bound, decode_probe, engine_repo, references, report, workload
 from enginesmith.report import _cases
 from enginesmith.brief import reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan
@@ -98,7 +98,8 @@ def describe(run, label: str) -> dict:
         'machine': s.get('machine') or machine(),
         'harness': {'version': __version__, 'digest': s['harness'], 'evaluation_version': s.get('evaluation_version'),
                     **_reference(s, t), 'reference_tp': t.reference_tp,
-                    'reference_max_length': t.max_request_length()},
+                    'reference_max_length': t.max_request_length(), 'correctness_only': t.correctness_only,
+                    'frameworks': t.frameworks},
         'settings': {'lengths': list(t.lengths), 'output_tokens': t.output_tokens, 'controls': t.controls,
                      'objective': {'prefill': t.objective.prefill, 'decode': t.objective.decode,
                                    'length_weights': {str(k): v for k, v in t.objective.length_weights.items()}},
@@ -120,6 +121,10 @@ def describe(run, label: str) -> dict:
 
 def _x(value) -> str:
     return f'{value:.2f}x' if isinstance(value, (int, float)) else '-'
+
+
+def _f(value) -> str:
+    return f'{value:.3f}' if isinstance(value, (int, float)) else '-'
 
 
 def _n(value) -> str:
@@ -151,11 +156,33 @@ def _reference(state: dict, task) -> dict:
 def readme(info: dict, repository: str | None = None) -> str:
     """The package's README, also the text of its post in the Discussions' Engines category. With a repository (the
     package published on GitHub), it links it and verifies from it."""
-    m, mc, final = info['model'], info['machine'], info['final']
+    m, mc, final, only = info['model'], info['machine'], info['final'], info['harness'].get('correctness_only')
     ref = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
     results = final or info['search']['evaluation'] or {'cases': []}
-    rows = '\n'.join(f'| {c["length"]:,} | {_x(c["prefill_speedup"])} | {_x(c["decode_speedup"])} |'
+    fractions = lambda c: f'{report.fraction(c.get("prefill_fraction"))} | {report.fraction(c.get("decode_fraction"))}'
+    rows = '\n'.join(f'| {c["length"]:,} | {_x(c["prefill_speedup"])} | {_x(c["decode_speedup"])} | {fractions(c)} |'
                      for c in results['cases'])
+    where = 'held-out final evaluation' if final else 'search evaluation'
+    reasons = sorted({c['bound_reason'] for c in results['cases'] if c.get('bound_reason')})
+    unbounded = f' The bound is not computed here: {"; ".join(reasons)}.' if reasons else ''
+    if only:
+        speed = [f'## Speed ({where}; no framework baseline)', '',
+                 f'{report.no_baseline(info["harness"].get("frameworks"))}. Score '
+                 f'{_f(results.get("score"))}; prefill {_f((results.get("segments") or {}).get("prefill"))}, decode '
+                 f'{_f((results.get("segments") or {}).get("decode"))}. Medians over the paired rounds, '
+                 f'{info["settings"]["output_tokens"]} tokens per request.{unbounded}', '',
+                 '| prompt tokens | prefill, ms | decode, ms per token | prefill, fraction of the bound | '
+                 'decode, fraction of the bound |', '|---:|---:|---:|---:|---:|']
+        speed += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} | {_n(c.get("decode_ms_per_token"))} | {fractions(c)} |'
+                  for c in results['cases']]
+    else:
+        speed = [f'## Speed against {ref} ({where})', '',
+                 f'Score {_x(results.get("score"))}; prefill {_x((results.get("segments") or {}).get("prefill"))}, '
+                 f'decode {_x((results.get("segments") or {}).get("decode"))} (reference time / engine time, '
+                 f'{info["settings"]["output_tokens"]} tokens per request; the fraction of the hardware bound is bound '
+                 f'time / engine time, an estimate).{unbounded}', '',
+                 '| prompt tokens | prefill | decode | prefill, fraction of the bound | decode, fraction of the bound |',
+                 '|---:|---:|---:|---:|---:|', rows]
     source = f'[{m["source"]}](https://huggingface.co/{m["source"]})' if m['source'] else m['name']
     revision = f' at revision `{m["revision"]}`' if m['revision'] else ''
     lines = [f'# {info["name"]}', '',
@@ -164,6 +191,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                  + (f', {mc["accelerator_cores"]} cores' if mc['accelerator_cores'] else '')
                  + f', {(mc["memory_bytes"] or 0) / 2**30:.0f} GiB, {mc["os"]}',
              f'- Reference: {info["harness"]["reference"]} {info["harness"]["reference_version"] or ""}'.rstrip()
+             + (', correctness only (no speed baseline)' if only else '')
              + (f', tensor-parallel degree {info["harness"]["reference_tp"]} (the engine gets as many accelerator '
                 'cores)' if (info['harness'].get('reference_tp') or 1) > 1 else ''),
              f'- Judged under evaluation version {info["harness"]["evaluation_version"] or "(unrecorded)"}',
@@ -172,23 +200,20 @@ def readme(info: dict, repository: str | None = None) -> str:
                if repository else []),
              f'- Search: {info["search"]["rounds"]} rounds by {_agent(info)}'
              + (f', agent cost ${info["search"]["agent_cost_usd"]:.2f}' if info['search']['agent_cost_usd'] else ''),
-             '', f'## Speed against {ref} ({"held-out final evaluation" if final else "search evaluation"})', '',
-             f'Score {_x(results.get("score"))}; prefill {_x((results.get("segments") or {}).get("prefill"))}, '
-             f'decode {_x((results.get("segments") or {}).get("decode"))} (reference time / engine time, '
-             f'{info["settings"]["output_tokens"]} tokens per request).', '',
-             '| prompt tokens | prefill | decode |', '|---:|---:|---:|', rows, '']
+             '', *speed, '']
     if final:
         g = final['gates']
         lines += [f'Correctness: {"passed" if final["passed"] else "FAILED"}; {g["total_mismatches"]} of '
                   f'{g["total_steps"]} judged steps mismatch (at most {g["allowed"]} allowed).', '']
-    lines += ['## Speed in absolute terms', '',
-              f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this engine '
-              f'and {ref} on the same machine.', '',
-              '| prompt tokens | time to first token, ms | prefill tok/s | decode tok/s |', '|---:|---:|---:|---:|']
-    lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} ({ref} {_n(c["reference_ttft_ms"])}) | '
-              f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
-              f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
-    lines.append('')
+    if not only:
+        lines += ['## Speed in absolute terms', '',
+                  f'Medians over the paired rounds of the {"held-out final" if final else "search"} evaluation, this '
+                  f'engine and {ref} on the same machine.', '',
+                  '| prompt tokens | time to first token, ms | prefill tok/s | decode tok/s |', '|---:|---:|---:|---:|']
+        lines += [f'| {c["length"]:,} | {_n(c["ttft_ms"])} ({ref} {_n(c["reference_ttft_ms"])}) | '
+                  f'{_n(c["prefill_tok_s"])} ({_n(c["reference_prefill_tok_s"])}) | '
+                  f'{_n(c["decode_tok_s"])} ({_n(c["reference_decode_tok_s"])}) |' for c in results['cases']]
+        lines.append('')
     lines += ['## Checks on the decode speed', '',
               f'- Natural text: {report.natural_text(info.get("natural_speed"))}.',
               f'- Decode probe: {report.probe_text(info.get("decode_probe"))}. One forward pass per generated token '
@@ -201,7 +226,7 @@ def readme(info: dict, repository: str | None = None) -> str:
                   f'- {ms["sessions"]} coding sessions by {_agent(info)}; the search took '
                   f'{ms["search_minutes"]:.0f} min.',
                   f'- {reached("first_correct", "First correct engine")}.',
-                  f'- {reached("reference_matched", f"First engine as fast as {ref} (score 1.0)")}.',
+                  *([] if only else [f'- {reached("reference_matched", f"First engine as fast as {ref} (score 1.0)")}.']),
                   ('- Agent usage: not reported by the agent.' if ms['total_input_tokens'] is None
                    and ms['total_cost_usd'] is None else
                    f'- Agent usage: {_k(ms["total_input_tokens"])} input and {_k(ms["total_output_tokens"])} output '
@@ -211,7 +236,8 @@ def readme(info: dict, repository: str | None = None) -> str:
                   '| round | kind | outcome | ended, min | score | prefill | decode | tokens in / out | engine lines |',
                   '|---|---|---|---:|---:|---:|---:|---:|---:|']
         lines += [f'| {r["round"]} | {r["kind"]} | {"accepted" if r["accepted"] else "rejected"} ({r["reason"]}) | '
-                  f'{_n(r["ended_min"])} | {_x(r["score"])} | {_x(r["prefill"])} | {_x(r["decode"])} | '
+                  f'{_n(r["ended_min"])} | {(_f if only else _x)(r["score"])} | {(_f if only else _x)(r["prefill"])} | '
+                  f'{(_f if only else _x)(r["decode"])} | '
                   f'{_k(r["input_tokens"])} / {_k(r["output_tokens"])} | {_n(r["engine_lines"])} |' for r in history]
         lines += ['', f'`history.csv`{" in " + repository if repository else ""} has every round with every prompt '
                   'length; `enginesmith.json` has the same and more.', '']
@@ -329,7 +355,8 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
     machine = info['machine']['chip'] or info['machine']['accelerator'] or 'an unknown machine'
     result = info['final'] or info['search']['evaluation'] or {}
     against = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
-    score = f', {result["score"]:.2f}x {against}' if isinstance(result.get('score'), (int, float)) else ''
+    score = f', {result["score"]:.2f}x {against}' if isinstance(result.get('score'), (int, float)) and not \
+        info['harness'].get('correctness_only') else ''
     title = f'[engine] {info["model"]["source"] or info["model"]["name"]} on {machine}: {info["name"]}{score}'
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as body:
         body.write((package / 'README.md').read_text())
@@ -464,13 +491,15 @@ def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths
     objective = Objective(s['objective']['prefill'], s['objective']['decode'],
                           {int(k): v for k, v in s['objective']['length_weights'].items()})
     cases = workload.cases(chosen, s['output_tokens'], objective.length_weights, s['controls'])
+    tp = info['harness'].get('reference_tp', 1)
     plan = Plan(tuple(cases), vocab, rounds or s['evaluation']['rounds'], s['evaluation']['warmup'],
-                s['evaluation']['cooldown_s'], Gates(**s['gates']), objective, 'nonce', os.urandom(32))
+                s['evaluation']['cooldown_s'], Gates(**s['gates']), objective, 'nonce', os.urandom(32),
+                info['harness'].get('correctness_only', False),
+                bound.bounds(model, chosen, s['output_tokens'], tp)['cases'])
     kind = info['harness']['reference'] if info['harness']['reference'] in references.KINDS else \
         current().DEFAULT_REFERENCE
     if reference is None and kind is None:
         raise ValueError('no reference for this package on this platform')
-    tp = info['harness'].get('reference_tp', 1)
     max_length = info['harness'].get('reference_max_length') or max(c.length for c in cases) + s['output_tokens']
     reference = reference or references.command(kind, model, max_length, tp)
     registry = Registry(work / 'engines')

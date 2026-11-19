@@ -21,11 +21,11 @@ REQUEST_TIMEOUT = 900.0
 
 
 def run(argv, vocab: int, length: int, tokens: int, directory: Path, registry: Registry | None = None,
-        engine_cores: int = 1) -> dict:
+        engine_cores: int = 1, reference_on_device: bool = True) -> dict:
     """Times `tokens` decode tokens both ways (A, B, B, A, ...) on fresh prompts of `length` tokens, after one round
     that warms the engine up and is dropped."""
     with Engine(list(argv), scratch=directory / 'scratch', label='decode-probe', registry=registry,
-                engine_cores=engine_cores) as engine:
+                engine_cores=engine_cores, reference_on_device=reference_on_device) as engine:
         def together(prompt):
             first, _ = engine.generate(prompt, 1, True, vocab, REQUEST_TIMEOUT)
             rest, elapsed = engine.generate([], tokens, False, vocab, REQUEST_TIMEOUT)

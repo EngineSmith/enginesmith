@@ -30,8 +30,9 @@ class TaskError(ValueError):
 
 @dataclass(frozen=True)
 class Objective:
-    """The score is the weighted geometric mean of the per-case prefill and decode speedups over the reference; a
-    case's weight is its length weight times the segment weight."""
+    """The score is the weighted geometric mean of the per-case prefill and decode speedups over the reference (with a
+    correctness-only reference: the fractions of the hardware bound); a case's weight is its length weight times the
+    segment weight."""
     prefill: float = 0.5
     decode: float = 0.5
     length_weights: dict[int, float] = field(default_factory=dict)  # length -> weight; a missing length weighs 1
@@ -111,6 +112,9 @@ class Task:
     reference_kind: str | None = None  # enginesmith.references.KINDS; None: the platform's default
     one_forward_per_token: bool | None = True  # the brief's decode rule; None: a run from before the rule
     reference_tp: int = 1  # tensor-parallel degree of the reference (and the accelerator cores an engine gets)
+    # A reference that decides correctness only: no speedup, the score is the fraction of the hardware bound.
+    correctness_only: bool = False
+    frameworks: str | None = None  # with correctness_only: the frameworks tried on this platform and how they failed
 
     def cases(self) -> list[workload.Case]:
         return workload.cases(self.lengths, self.output_tokens, self.objective.length_weights, self.controls)
@@ -151,7 +155,8 @@ class Task:
                    Budget(**data['budget']),
                    Quality(**{**data['quality'], 'benchmarks': tuple(data['quality']['benchmarks'])})
                    if data.get('quality') else None, data.get('model_source'), data.get('reference_kind'),
-                   data.get('one_forward_per_token'), data.get('reference_tp', 1))
+                   data.get('one_forward_per_token'), data.get('reference_tp', 1),
+                   data.get('correctness_only', False), data.get('frameworks'))
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.to_json(), sort_keys=True).encode()).hexdigest()
@@ -260,7 +265,7 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
     if source is not None and (type(source) is not str or not re.fullmatch(r'[\w.-]+/[\w.-]+', source)):
         raise TaskError('model.source must be a Hugging Face repository id such as "mlx-community/Qwen3-0.6B-4bit"')
 
-    r = _table(data, 'reference', {'command', 'kind', 'tensor_parallel'})
+    r = _table(data, 'reference', {'command', 'kind', 'tensor_parallel', 'correctness_only', 'frameworks'})
     reference = _argv(r['command'], 'reference.command') if 'command' in r else None
     from enginesmith.references import KINDS
     reference_kind = r.get('kind')
@@ -268,9 +273,22 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
         raise TaskError(f'reference.kind must be one of {", ".join(KINDS)}')
     if reference_kind and reference:
         raise TaskError('give reference.kind or reference.command, not both')
+    correctness_only = r.get('correctness_only', bool(KINDS.get(reference_kind or '', {}).get('correctness_only')))
+    if type(correctness_only) is not bool:
+        raise TaskError('reference.correctness_only must be true or false')
+    if not correctness_only and KINDS.get(reference_kind or '', {}).get('correctness_only'):
+        raise TaskError(f'reference.kind = "{reference_kind}" is a correctness-only reference')
+    frameworks = r.get('frameworks')
+    if correctness_only != (frameworks is not None) or frameworks is not None and (
+            type(frameworks) is not str or not frameworks.strip()):
+        raise TaskError('a correctness-only reference needs reference.frameworks, and only it: the frameworks tried '
+                        'on this platform and how each failed')
     reference_tp = _number(r, 'tensor_parallel', 1, 1, 64, 'reference.tensor_parallel', integer=True)
-    if reference_tp > 1 and (reference or not KINDS.get(reference_kind or '', {}).get('tensor_parallel')):
-        raise TaskError('reference.tensor_parallel needs a reference.kind that supports it (nxdi)')
+    # With a correctness-only reference it is the number of accelerator cores the engine gets.
+    if reference_tp > 1 and not correctness_only and (
+            reference or not KINDS.get(reference_kind or '', {}).get('tensor_parallel')):
+        raise TaskError('reference.tensor_parallel needs a reference.kind that supports it (nxdi) or a '
+                        'correctness-only reference')
 
     e = _table(data, 'engine', {'seed', 'evaluate_seed', 'build', 'executable', 'native', 'one_forward_per_token',
                                 'skill'})
@@ -383,7 +401,8 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
             raise TaskError(f'engine.skill: {skill} has no SKILL.md')
     return Task(path, name, model, card, vocab, reference, seed, evaluate_seed, build, executable, native, skill,
                 agent, agent_model, agent_command, tuple(sorted(lengths)), output_tokens, controls, objective,
-                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward, reference_tp)
+                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward, reference_tp,
+                correctness_only, frameworks)
 
 
 def _quality(data: dict) -> Quality:

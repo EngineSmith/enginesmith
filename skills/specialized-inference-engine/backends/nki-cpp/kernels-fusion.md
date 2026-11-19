@@ -68,3 +68,13 @@ partitions, transpose both columns to rows on the TensorE, `M = max`, then `max(
 - `nrt_load` of the 2 MB step NEFF takes 186-255 ms; uploading 1.4 GB of weights one `nrt_tensor_write` per tensor
   took 7-8 s (not optimized).
 - Feeding a long prompt through the decode step costs a step per token: prefill needs its own NEFF (`prefill.md`).
+
+## MoE over a multi-token group: one slot per distinct expert
+
+When a group of T tokens is routed together (prefill in 4-token groups), the T x k (token, expert) pairs cover far
+fewer distinct experts. On DeepSeek-V4.1-Flash, 24 pairs hit 16.2 distinct experts on average. Give each distinct
+expert one slot, in ascending id order, and apply it to all T tokens at once. The moving operand is the tokens'
+block-masked x, and tokens not routed to that expert get routing weight 0, which adds exact zeros. Each token keeps
+the same instructions and rounding as the per-token kernel, so tokens are identical, provided the combine sums
+experts in the same order the reference does (ascending id for the official DeepSeek code). Compile one NEFF per
+distinct-count S and pick it at run time. MoE device time went 1842 -> 1403 us; prefill 25-30% faster.

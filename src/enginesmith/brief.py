@@ -6,7 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
-from enginesmith import references
+from enginesmith import bound, references, report
 from enginesmith.platforms import current
 from enginesmith.task import REPO, Task
 
@@ -43,6 +43,8 @@ def _percent(value: float) -> str:
 
 def contract(task: Task, kind: str, start: str) -> str:
     o, a, g, e = task.objective, task.acceptance, task.gates, task.evaluation
+    measure, measures = (('fraction of the hardware bound', 'fractions of the hardware bound') if task.correctness_only
+                         else ('speedup', 'speedups'))
     lengths = ', '.join(f'{n:,} (weight {o.case_weight(n):g})' for n in task.lengths)
     rules = []
     if a.min_improvement:
@@ -51,7 +53,7 @@ def contract(task: Task, kind: str, start: str) -> str:
         rules.append(f'the prefill or the decode mean improves by at least {_percent(a.segment_improvement)}, while '
                      f'the other mean and the score get worse by at most {_percent(a.max_regression)}')
     if a.case_improvement:
-        rules.append(f'one case\'s prefill or decode speedup improves by at least {_percent(a.case_improvement)}, '
+        rules.append(f'one case\'s prefill or decode {measure} improves by at least {_percent(a.case_improvement)}, '
                      f'while the score gets worse by at most {_percent(a.max_regression)}')
     allowed = current().ALLOWED
     native = ('\n- The engine must be native and self-contained: one executable that needs no files other than the '
@@ -64,6 +66,16 @@ def contract(task: Task, kind: str, start: str) -> str:
     forward = ('\n- Decode computes one forward pass of the checkpoint per generated token: no draft models, and no '
                'drafted, speculated or looked-up tokens verified in batches.') if task.one_forward_per_token else ''
     card = '\n- `brief/model-card.md`: the model card written when this task was set up.' if task.model_card else ''
+    if task.correctness_only:
+        cases = bound.bounds(task.model, task.lengths, task.output_tokens, task.reference_tp)['cases']
+        speed = (f'The reference decides correctness only: its times are no speed baseline (frameworks tried: '
+                 f'{task.frameworks}). The fraction of the hardware bound is the median over rounds of bound time / '
+                 f'candidate time; the bound here, per prompt length: '
+                 + '; '.join(f'{n:,}: {report.bound_text(c, task.output_tokens)}' for n, c in cases.items())
+                 + f'. Where it is not computed, a nominal {bound.NOMINAL_MS:g} ms per request and per decode token '
+                 'stands in, so the score is a relative measure only.')
+    else:
+        speed = 'A speedup is the median over rounds of reference time / candidate time.'
     quality = ('\n6. Then the best engine and the reference answer MATH-500 and IFEval with greedy decoding, and '
                'the accuracy is reported next to the reference\'s.') if task.quality else ''
     return f'''# EngineSmith session brief
@@ -108,10 +120,9 @@ the same way (`{' '.join(reference_argv(task))}`).
    {g.case_mismatch_percent}% mismatching steps, {f'each token among the reference\'s top {g.mismatch_rank} choices, ' if g.mismatch_rank else ''}and the whole evaluation at most {g.total_mismatch_percent}%.
 2. Speed: {e.rounds} paired rounds, reference and candidate alternating (AB, BA, ...), each engine a fresh process
    with {e.warmup} warmup request(s), {e.cooldown_s:g} s cooldown before each process. Per case: a prefill request
-   generate(P, 1) and a decode request generate((), {task.output_tokens - 1}), each on a fresh prompt. A speedup is the
-   median over rounds of reference time / candidate time. A request that takes more than 50 times the reference's
-   time for it (and more than 300 s) fails the candidate.
-3. The score is the weighted geometric mean of the per-case prefill and decode speedups. Prefill weight
+   generate(P, 1) and a decode request generate((), {task.output_tokens - 1}), each on a fresh prompt. {speed} A
+   request that takes more than 50 times the reference's time for it (and more than 300 s) fails the candidate.
+3. The score is the weighted geometric mean of the per-case prefill and decode {measures}. Prefill weight
    {o.prefill:g}, decode weight {o.decode:g}. Prompt lengths: {lengths}. Every case generates
    {task.output_tokens} tokens.
 4. A passing candidate replaces the current best engine when {"; or when ".join(rules) or "it is the first to pass"}.
@@ -165,10 +176,13 @@ def _ms(values) -> str:
 
 
 def case_table(result: dict) -> str:
-    lines = ['| case | prefill speedup | decode speedup | prefill ms (ref / cand, per round) | '
+    """Per case the speedups, or with a correctness-only reference the fractions of the hardware bound (against the
+    nominal bound where it is not computed), and the times."""
+    measure = 'fraction' if result.get('correctness_only') else 'speedup'
+    lines = [f'| case | prefill {measure} | decode {measure} | prefill ms (ref / cand, per round) | '
              'decode ms (ref / cand, per round) | mismatching steps per round |', '|---|---|---|---|---|---|']
     for c in result['cases']:
-        lines.append(f"| {c['id']} | {c['prefill_speedup']:.3f} | {c['decode_speedup']:.3f} | "
+        lines.append(f"| {c['id']} | {c[f'prefill_{measure}']:.3f} | {c[f'decode_{measure}']:.3f} | "
                      f"{_ms(c['prefill_ms']['reference'])} / {_ms(c['prefill_ms']['candidate'])} | "
                      f"{_ms(c['decode_ms']['reference'])} / {_ms(c['decode_ms']['candidate'])} | "
                      f"{c['mismatches']} |")

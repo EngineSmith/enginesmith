@@ -127,7 +127,9 @@ work leaks between timed requests.
    LFM2.5-8B-A1B, where a one-ulp difference can flip an expert choice. The default limit of 100 sits between.
 4. **Speed.** Speedup per case and segment: the median over rounds of reference time / candidate time. The parent
    times each request from just before writing it until the reply line arrives. A candidate request that takes more
-   than 50 times the reference's time for it (and more than 300 s) fails the candidate.
+   than 50 times the reference's time for it (and more than 300 s) fails the candidate. With a correctness-only
+   reference (`docs/task.md`, "The hardware bound") there is no speedup: per case and segment the score takes the
+   fraction of the hardware bound, the median over rounds of bound time / candidate time.
 
 The memory watchdog kills registered engines when macOS reports critical memory pressure, and the run holds a
 `caffeinate` assertion against idle sleep.
