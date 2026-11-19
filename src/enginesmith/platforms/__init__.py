@@ -35,7 +35,7 @@ import functools
 import importlib
 
 PLATFORMS = ('enginesmith.platforms.macos', 'enginesmith.platforms.linux_rocm', 'enginesmith.platforms.neuron',
-             'enginesmith.platforms.generic')
+             'enginesmith.platforms.linux_cuda', 'enginesmith.platforms.generic')
 
 
 @functools.cache

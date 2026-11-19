@@ -127,6 +127,32 @@ check, since the executable still links only libnrt; it is refused all the same,
 reference's compile cache: every NEFF is compiled from the engine's own kernel source in the clean build. The build
 script, published with the source, shows which it is.
 
+## NVIDIA CUDA GPUs (`linux-cuda`)
+
+Prerequisite support only: no built-in reference and no model or GPU performance
+validation. The native check reads ELF program headers (including executables
+without section tables), checks the host architecture and executable entry point,
+and allows only these direct `DT_NEEDED` dependencies. It does not execute the
+candidate. Scripts, nonexecutables, dependency filters, unknown libraries and
+nonstandard program interpreters are refused. Static code and `dlopen` behavior
+still require source review; this check cannot prove a whole program is compliant.
+
+| Allowed | What it does | Why it is allowed |
+|---|---|---|
+| `libc`, `libm`, `libdl`, `libpthread`, `librt`, `libutil`, `libresolv`, `libatomic`, `libgcc_s`, `libstdc++` | C and C++ runtimes | operating system and language runtime |
+| `ld-linux-x86-64`, `ld-linux-aarch64`, `linux-vdso` | dynamic loader and kernel interface | program startup |
+| `libcuda`, `libcudart` | allocation, transfer, loading and launching own kernels | CUDA driver and runtime |
+| `libnvrtc`, `libnvrtc-builtins`, `libnvJitLink`, `libnvfatbin` | compile, link and package own device kernels | CUDA compilation runtime |
+| `libnvidia-ptxjitcompiler`, `libnvidia-fatbinaryloader` | driver's kernel compilation and loading | CUDA driver layer |
+| `libnvidia-ml` | device telemetry | no model arithmetic |
+| `libz`, `libnuma`, `libelf` | compression, memory placement and ELF parsing | utilities without model arithmetic |
+| `libnccl` | GPU communication | provisionally allowed as described in Open questions |
+
+cuBLAS, cuBLASLt, cuDNN, TensorRT, cuSPARSE, cuSOLVER, cuFFT, cuRAND, Python,
+PyTorch, vLLM and other numerical or inference libraries are outside this allowlist.
+An engine may adapt licensed kernel source and compile it into its own executable.
+FP8 and FP4 format support must be checked on the actual architecture and toolkit.
+
 ## Code compiled into the executable
 
 A library linked statically, a Rust crate or code copied from another project becomes part of the executable and
