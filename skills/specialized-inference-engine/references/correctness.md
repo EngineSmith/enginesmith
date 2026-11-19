@@ -152,6 +152,29 @@ Choose prompt lengths at every place the computation changes shape:
 - long prompts up to the task's maximum context, at least once per change that touches attention or the cache;
 - random-token prompts with fixed seeds and natural text, so that routing and attention patterns vary.
 
+## Captured execution and carried state
+
+A graph or recorded command sequence can preserve old addresses, launch dimensions and host-side branch choices
+even when its kernel source is unchanged. Validate the replay path itself, not only the eager path used to build
+it. For a change to capture, buffer reuse or asynchronous submission:
+
+- List the device and host allocations referenced by the recording, their live extents and which stream or device
+  owns each write. Keep them alive until all consumers finish. Updating a host pointer variable does not update
+  an address already stored in a recorded command; update every affected command or rebuild the recording.
+- After capture, change the prompt, token and state contents and compare replay with the parent's normal request
+  path. Replaying only the capture input can hide a stale copy source, scalar argument or branch decision.
+- Exercise the fast route and its fallback in the same process, including a request that crosses the route's
+  boundary during continuation. Then run short, long and short requests with the specified resets. Check both
+  outputs and state after each transition, so graph reuse cannot conceal a stale tail or an old position counter.
+- Compare the state that the next request consumes: recurrent matrices, convolution history, KV entries and
+  positions, routing metadata and the pending token, as applicable. Compare after prefill chunks and subsequent
+  decode steps, not just at the end of generation. Matching logits now does not prove that a carried state will
+  produce the same next step.
+
+Read diagnostic buffers only after the relevant producers have completed. Synchronization added for a dump can
+hide a race in the normal path: retain repeated checks with diagnostics disabled. For multi-device work, preserve
+the peer-transfer dependencies and reduction order as well as each device's local arithmetic.
+
 ## Per-layer dump and diff
 
 When an end-to-end check fails and the cause is not obvious:

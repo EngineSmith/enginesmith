@@ -151,6 +151,23 @@ revisit a rejected mechanism only with a changed condition or new evidence. Exam
   from 4.75 to 5.25 ms/token, because only 8 threadgroups remained;
 - 32-bit row offsets in an expert GEMV: 3% faster in isolation, 0.997-0.999 end to end; rejected.
 
+### Reusing earlier work
+
+Before importing a historical optimization, compare its actual source and dispatch conditions with the current
+parent. A later candidate may already contain an earlier candidate's changes, and the current parent may contain
+both. Candidate labels or prose summaries do not establish an incremental change; compare source trees and the
+relevant call sites.
+
+Bind reusable evidence to the source, build flags, target architecture, checkpoint, reference and checker versions
+that produced it. An identical source tree does not imply an identical experiment when one of those inputs changes.
+Record the changed input and why it warrants another check. For a deterministic failure, identify the concrete
+change expected to remove its cause before retrying; a new label or a new timing sample is not such a change.
+
+Distinguish an unevaluated candidate, a failed correctness check, and a complete but unaccepted result. Missing
+segment measurements remain missing, with the reason. For a new combination, test the combined source against the
+current parent: gains from overlapping or interacting changes are not additive. Reused development evidence does
+not replace the complete candidate or independent final evaluation required by the task contract.
+
 ## Parallel explorations
 
 Several explorers (agents or people) can work at once when the GPU is shared carefully:
