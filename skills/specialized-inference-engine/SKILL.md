@@ -1,6 +1,6 @@
 ---
 name: specialized-inference-engine
-description: Build and optimize a specialized native inference engine for one fixed model checkpoint, matched token for token against a reference implementation and faster than it. Covers onboarding a model (model card, bytes and FLOPs per token, speed floor), bringing up a correct baseline, bitwise-safe optimization, interleaved timing, profiling, kernel fusion and packaging. Backend modules hold the platform techniques: Metal + Rust for Apple Silicon (M5 family), HIP + Rust for AMD Instinct MI325X (gfx942), and NKI + C++ for AWS Trainium2. Use for any session that writes, verifies or speeds up engine code.
+description: "Build and optimize a specialized native inference engine for one fixed model checkpoint, matched token for token against a reference implementation and faster than it. Covers onboarding a model (model card, bytes and FLOPs per token, speed floor), bringing up a correct baseline, bitwise-safe optimization, interleaved timing, profiling, kernel fusion and packaging. Backend modules hold the platform techniques: Metal + Rust for Apple Silicon (M5 family), HIP + Rust for AMD Instinct MI325X (gfx942), and NKI + C++ for AWS Trainium2. Use for any session that writes, verifies or speeds up engine code."
 ---
 
 # Specialized inference engine
@@ -86,9 +86,9 @@ platform's hard rules.
 |---|---|
 | `references/workflow.md` | starting a task or a session; deciding what to do next |
 | `references/model-card.md` | onboarding a model; computing floors; checking a semantic detail of the model |
-| `references/correctness.md` | before any change to arithmetic; when a check fails; when choosing what "identical" means |
-| `references/measurement.md` | before timing anything; when a result looks too good or too noisy |
-| `references/optimization-method.md` | choosing the next optimization; writing up a result |
+| `references/correctness.md` | before changing arithmetic, captured execution, buffer lifetimes or carried state; when a check fails |
+| `references/measurement.md` | before timing anything, especially work spanning streams or devices; when a result looks too good or too noisy |
+| `references/optimization-method.md` | choosing the next optimization, reusing historical changes or evidence, and writing up a result |
 | `backends/metal-rust/README.md` | any Metal + Rust work (index of the backend files) |
 | `backends/hip-rust/README.md` | any HIP + Rust work on an AMD Instinct GPU (index of the backend files) |
 | `backends/nki-cpp/README.md` | any Trainium work (index of the backend files) |
