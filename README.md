@@ -14,7 +14,9 @@ end-to-end speed of mlx-lm.
 
 **Status: research code under active development.** Apple Silicon (mlx-lm as the reference), AMD Instinct GPUs
 on Linux (ROCm, SGLang as the reference) and AWS Trainium2 (NxD Inference as the reference); see the setup skill.
-Support for other platforms (CUDA, ...) plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Linux/CUDA [prerequisite support](docs/cuda-prerequisites.md) provides device selection and native build checks;
+it requires an externally validated reference command and does not yet include a built-in reference or an engine
+skill backend. Support for other platforms plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What a specialized engine is
 
