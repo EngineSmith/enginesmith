@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <cstddef>
+#include <new>
 
 // This kernel is compiled from source with the example. No numerical library is called.
 __global__ void increment(float* values, std::size_t count) {
@@ -36,7 +37,9 @@ extern "C" const char* runtime_error(int status) {
 extern "C" int runtime_create(std::size_t count, State** output) {
     if (!output || !count || count > (1U << 24)) return cudaErrorInvalidValue;
     *output = nullptr;
-    auto* state = new State{};
+    // Never let a C++ allocation exception unwind through the Rust C ABI.
+    auto* state = new (std::nothrow) State{};
+    if (!state) return cudaErrorMemoryAllocation;
     state->count = count;
     cudaError_t status = cudaStreamCreateWithFlags(&state->stream, cudaStreamNonBlocking);
     if (status == cudaSuccess) status = cudaEventCreate(&state->begin);
