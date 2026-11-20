@@ -49,7 +49,8 @@ def session_info() -> dict:
     return json.loads(Path(path).read_text())
 
 
-def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None) -> int:
+def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None, levels: str | None = None,
+        requests: int | None = None) -> int:
     info = session_info()
     task = Task.from_json(info['task'])
     engine = Path(info['engine'])
@@ -71,6 +72,8 @@ def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None) -
     if task.native and (reason := current().native_problem(executable)):
         print(f'engine/{task.executable} is {reason}; the harness would reject it')
         return 1
+    if task.mode == 'concurrent':
+        return _concurrent(info, task, executable, directory, outputs, number, rounds, cooldown, levels, requests)
     if lengths in (None, ''):
         chosen = [n for n in task.lengths if n <= 32768] or task.lengths[:1]
     elif lengths == 'all':
@@ -104,5 +107,47 @@ def run(lengths: str | None, rounds: int, build: bool, cooldown: float | None) -
     if result['score']:
         s = result['segments']
         print(f'score {result["score"]:.4f} (prefill {s["prefill"]:.4f}, decode {s["decode"]:.4f}) on these lengths')
+    print(f'full result: {outputs / f"{number:03d}.json"}')
+    return 0 if result['passed'] else 1
+
+
+def _concurrent(info, task, executable, directory, outputs, number, rounds, cooldown, levels, requests) -> int:
+    """dev-eval of a concurrent task: the formal procedure on a public request plan and public prompt windows."""
+    from dataclasses import replace
+    from enginesmith import concurrent
+    from enginesmith.brief import reference_concurrent_argv
+    chosen = tuple(int(n) for n in levels.split(',')) if levels else task.concurrent.levels
+    if not set(chosen) <= set(task.concurrent.levels):
+        print(f'--levels must name some of the task levels: {", ".join(map(str, task.concurrent.levels))}')
+        return 1
+    count = requests or task.concurrent.requests_per_level
+    if count < max(chosen):
+        print(f'--requests must be at least the highest level ({max(chosen)})')
+        return 1
+    plan = concurrent.plan(task, rounds, 'public', b'', b'public', chosen, count)
+    if cooldown is not None:
+        plan = replace(plan, cooldown_s=cooldown)
+    evaluator = concurrent.ConcurrentEvaluator(
+        info['reference'], reference_concurrent_argv(task), [str(executable), '--model', str(task.model)], plan,
+        directory, registry=Registry(info['registry']), log=lambda m: print(m, flush=True),
+        reference_controls=Path(info['brief']) / 'reference-controls.json', engine_cores=task.reference_tp)
+    started = time.time()
+    with gpu_lock():
+        try:
+            result = evaluator.run()
+        except ReferenceFailed as exc:
+            print(f'the reference failed (not your engine): {exc}')
+            return 2
+    (outputs / f'{number:03d}.json').write_text(json.dumps(result, indent=2))
+    print(f'\ndev-eval {number:03d}: {"PASSED" if result["passed"] else "FAILED"} in {time.time() - started:.0f} s '
+          f'(public request plan and prompts, {rounds} round(s), levels {", ".join(map(str, chosen))}, {count} '
+          'requests per level)')
+    if result['failure']:
+        print(failure_text({'evaluation': result}))
+    if result['cases']:
+        print(case_table(result))
+    if result['score']:
+        means = ', '.join(f'{k} {v:.4f}' for k, v in result['segments'].items() if v is not None)
+        print(f'score {result["score"]:.4f} ({means}) on these levels')
     print(f'full result: {outputs / f"{number:03d}.json"}')
     return 0 if result['passed'] else 1

@@ -34,7 +34,8 @@ def model_dir(tmp_path):
 
 
 def write_task(directory: Path, model: Path, **sections) -> Path:
-    """A task file for the fake engines; sections override or extend the defaults (a dict per TOML table)."""
+    """A task file for the fake engines; sections override or extend the defaults (a dict per TOML table); a value
+    None removes a default key."""
     reference = fake_engine('--reference')
     tables = {
         'model': {'path': str(model)},
@@ -46,7 +47,7 @@ def write_task(directory: Path, model: Path, **sections) -> Path:
         'budget': {'sessions': 3, 'wall_time': '100h'},
     }
     for name, values in sections.items():
-        tables[name] = {**tables.get(name, {}), **values}
+        tables[name] = {k: v for k, v in {**tables.get(name, {}), **values}.items() if v is not None}
 
     def value(v):
         if isinstance(v, bool):

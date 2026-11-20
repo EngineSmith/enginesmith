@@ -13,10 +13,10 @@ import os
 from pathlib import Path
 
 from enginesmith import agents, references, workload
-from enginesmith.brief import reference_argv, reference_kind
+from enginesmith.brief import reference_argv, reference_concurrent_argv, reference_kind, rules_text
 from enginesmith.evaluate import EVALUATION_VERSION, MIN_TIMEOUT, TIMEOUT_FACTOR
 from enginesmith.platforms import current
-from enginesmith.task import Task, decode_rule
+from enginesmith.task import PRESETS, Task, decode_rule
 
 
 def _hours(seconds: float) -> str:
@@ -82,7 +82,7 @@ def plan_problem(task: Task) -> str | None:
 
 
 def explain(task: Task) -> str:
-    o, a, g, e, b = task.objective, task.acceptance, task.gates, task.evaluation, task.budget
+    g = task.gates
     prepared = _prepare(task)
     measured = {row['length']: row for row in prepared.get('observed', {}).get('lengths', [])}
     load_s = (prepared.get('observed', {}).get('load_ms') or 0) / 1000
@@ -112,6 +112,25 @@ def explain(task: Task) -> str:
             f'version {references.version(kind)}).' if kind else
             f'- Reference: the custom command `{" ".join(task.reference)}`.', '']
 
+    if task.mode == 'concurrent':
+        out += _concurrent_measured(task, prepared)
+    else:
+        out += _single_measured(task, measured)
+
+    allowed = (f'({g.case_mismatch_percent * task.output_tokens // 100} of {task.output_tokens})'
+               if task.mode == 'single' else 'of its output tokens')
+    out += _gates_section(task, allowed)
+
+    out += _evaluation_section(task, prepared, measured, load_s)
+    estimate = _estimate(task, prepared, measured, load_s)
+    out += _search_sections(task)
+    out += _after_and_budget(task, estimate)
+    return '\n'.join(out)
+
+
+def _single_measured(task: Task, measured: dict) -> list[str]:
+    o = task.objective
+    out = []
     timed = [c for c in task.cases() if c.timed]
     total_weight = sum(o.case_weight(c.length) * (o.prefill + o.decode) for c in timed)
     out += ['## 2. What is measured', '',
@@ -144,8 +163,63 @@ def explain(task: Task) -> str:
             'table\'s "share" columns are each term\'s weight in it. 1.20 means the engine is 20% faster than '
             f'{reference_kind(task) or "the reference"} on this mix. The prefill and decode means used by the acceptance rules weight the cases by '
             'their case weights only.', '']
+    return out
 
-    allowed = g.case_mismatch_percent * task.output_tokens // 100
+
+def _concurrent_measured(task: Task, prepared: dict) -> list[str]:
+    o, c = task.objective, task.concurrent
+    measured = {row['level']: row for row in prepared.get('observed', {}).get('levels', [])}
+    preset = PRESETS.get(c.preset or '')
+    written = {'levels': list(c.levels), 'level_weights': o.level_weights, 'throughput': o.throughput,
+               'ttft': o.ttft, 'latency': o.latency, 'prompt_range': list(c.prompt_range),
+               'output_range': list(c.output_range)}
+    changed = [k for k, v in written.items() if preset and preset[k] != v]
+    out = ['## 2. What is measured', '',
+           f'The workload is concurrent (`workload.mode = "concurrent"`, preset `{c.preset or "none"}`'
+           + (f'; changed from the preset: {", ".join(changed)}' if changed else
+              ('; all values as in the preset' if preset else '')) + '). '
+           f'Per concurrency level C, C closed-loop clients send the level\'s {c.requests_per_level} independent '
+           'requests: a client sends its next request as soon as its last one has all its tokens, and the clients '
+           f'start within {c.stagger_s:g} s of each other. Prompt lengths are drawn log-uniformly from '
+           f'{c.prompt_range[0]:,}-{c.prompt_range[1]:,} tokens and output lengths from {c.output_range[0]}-'
+           f'{c.output_range[1]}; the run draws this request plan once for all its rounds (a new one for the final), '
+           'and every round draws fresh prompt windows. Prompts are raw token ids from the public Lily formula. The '
+           'harness times each request from just before it writes it and every token when it arrives; the engine\'s '
+           'own timings are ignored. Whether the engine batches requests is its own choice.', '',
+           'Per level and round: **throughput** = time from the first request to the last token (the same work for '
+           'both engines); **ttft** = the 90th percentile over the requests of the time to the first token; '
+           '**latency** = the 90th percentile over the requests of the end-to-end time divided by the output tokens. '
+           'All three start when the request is written, so holding tokens back gains nothing.', '',
+           '| clients | level weight | share: throughput | ttft | latency | reference here: makespan | output tok/s | '
+           'ttft p90 | latency p90 per token | peak memory |', '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+    total = sum(o.case_weight(n) for n in c.levels) * sum(o.weights())
+    for n in c.levels:
+        w, row = o.case_weight(n), measured.get(n)
+        ref = (f'{row["makespan_ms"] / 1000:.1f} s | {row["output_tok_s"]:,.0f} | {row["ttft_p90_ms"]:,.0f} ms | '
+               f'{row["latency_p90_ms"]:.2f} ms | {row["peak_memory_bytes"] / 2**30:.1f} GiB') if row else \
+            'not measured | - | - | - | -'
+        shares = ' | '.join(_share(w * x / total) if total else '-' for x in o.weights())
+        out.append(f'| {n} | {w:g} | {shares} | {ref} |')
+    controls = [x.length for x in task.cases()]
+    out += ['', (f'Correctness-only control prompts ({len(controls)}): lengths {", ".join(map(str, controls))}, each '
+                 f'sent alone, {controls and task.cases()[0].output_tokens} tokens each; checked before any timing.')
+            if controls else 'No control prompts (`workload.controls = false`).', '']
+    if not measured:
+        out += ['The reference has not been measured on this machine yet: run `enginesmith prepare` first.', '']
+    out += ['## 3. The score', '',
+            'For each level C and segment s (throughput, ttft, latency): speedup(C, s) = median over the paired rounds '
+            'of reference / engine. The score is the weighted geometric mean', '',
+            '    score = exp( sum_C sum_s w_C * w_s * ln speedup(C, s) / sum_C sum_s w_C * w_s )', '',
+            f'with segment weights w_throughput = {o.throughput:g}, w_ttft = {o.ttft:g}, w_latency = {o.latency:g} '
+            'and the level weights above. A segment or level of weight 0 is measured and reported but counts for '
+            'nothing. The segment means used by the acceptance rules weight the levels by their level weights only.',
+            '']
+    return out
+
+
+def _gates_section(task: Task, allowed: str) -> list[str]:
+    g = task.gates
+    out = []
     out += ['## 4. Correctness gates (every evaluation)', '',
             f'These are the judging rules of evaluation version {EVALUATION_VERSION} (zones.toml lists what each '
             'version changed); the run records the version.', '',
@@ -153,28 +227,51 @@ def explain(task: Task) -> str:
             '2. A candidate token stream identical to the reference\'s agrees. A stream that differs is replayed '
             'through the reference with the candidate\'s tokens forced (teacher forcing); a step whose token is not '
             'the reference\'s top choice is a mismatch.',
-            f'3. A stream passes with at most {g.case_mismatch_percent}% mismatching steps ({allowed} of '
-            f'{task.output_tokens})' + (f', each mismatching token among the reference\'s top {g.mismatch_rank} '
+            f'3. A stream passes with at most {g.case_mismatch_percent}% mismatching steps {allowed}' + (f', each mismatching token among the reference\'s top {g.mismatch_rank} '
                                         'choices' if g.mismatch_rank else '') +
             f'; the whole evaluation with at most {g.total_mismatch_percent}% of all judged steps.',
-            f'4. Every candidate request must answer within {TIMEOUT_FACTOR} times the reference\'s time for it '
-            f'(and at least {MIN_TIMEOUT:g} s); a slower candidate fails.', '',
+            (f'4. Every candidate request must answer within {TIMEOUT_FACTOR} times the reference\'s time for it '
+             f'(and at least {MIN_TIMEOUT:g} s); a slower candidate fails.' if task.mode == 'single' else
+             f'4. Every level must finish within {TIMEOUT_FACTOR} times the reference\'s time for it (and at least '
+             f'{MIN_TIMEOUT:g} s); a slower candidate fails. In a concurrent task each request stream is judged against '
+             'the single-request reference (`' + ' '.join(reference_argv(task)) + '`); the timed reference is `'
+             + ' '.join(reference_concurrent_argv(task)) + '`.'), '',
             'A correct engine only diverges at near-ties: its mismatching tokens are the reference\'s 2nd or 3rd '
             'choice (up to rank ~50 on MoE models, whose expert routing can flip on a one-ulp difference); a wrong '
             'one produces tokens ranked in the hundreds or thousands.', '']
+    return out
 
+
+def _estimate(task: Task, prepared: dict, measured: dict, load_s: float) -> float | None:
+    e = task.evaluation
+    if task.mode == 'concurrent':
+        levels = prepared.get('observed', {}).get('levels', [])
+        per_arm = sum(row['makespan_ms'] for row in levels) / 1000 + load_s
+        return e.rounds * 2 * (per_arm + e.cooldown_s) + 2 * load_s + 60 if levels else None
     per_arm = sum(row['prefill_ms'] + row['decode_ms'] for row in measured.values()) / 1000 + load_s
-    estimate = e.rounds * 2 * (per_arm + e.cooldown_s) + 2 * load_s + 60 if measured else None
+    return e.rounds * 2 * (per_arm + e.cooldown_s) + 2 * load_s + 60 if measured else None
+
+
+def _evaluation_section(task: Task, prepared: dict, measured: dict, load_s: float) -> list[str]:
+    e = task.evaluation
+    estimate = _estimate(task, prepared, measured, load_s)
+    every = 'every level in turn' if task.mode == 'concurrent' else 'every case'
+    out = []
     out += ['## 5. One evaluation', '',
             f'- {e.rounds} paired rounds, the reference first in even rounds and the candidate first in odd ones '
             '(AB, BA, ...), the same fresh prompt for both arms of a round.',
             f'- Each arm of each round is a fresh engine process: load, {e.warmup} untimed warmup request(s), then '
-            f'every case; one engine resident at a time, {e.cooldown_s:g} s cooldown before every process.',
+            f'{every}; one engine resident at a time, {e.cooldown_s:g} s cooldown before every process.',
             '- Round 0 is judged before the other rounds are timed, so a wrong engine fails early.',
             f'- Duration: about {_hours(estimate)} (ESTIMATE: the reference\'s measured times, the candidate assumed as '
             'fast, plus loads and cooldowns).' if estimate else '- Duration: unknown until `enginesmith prepare` runs.',
             '']
+    return out
 
+
+def _search_sections(task: Task) -> list[str]:
+    b = task.budget
+    out = []
     agent = (' '.join(task.agent_command) if task.agent == 'command' else
              f'{agents.NAMES[task.agent]} (`{task.agent}`) with '
              + (f'model `{task.agent_model}`' if task.agent_model else "the agent's default model"))
@@ -207,15 +304,7 @@ def explain(task: Task) -> str:
             'A rejected optimization is not continued: the next session starts from the best engine again, knowing '
             'what was tried and why it was rejected.', '']
 
-    rules = []
-    if a.min_improvement:
-        rules.append(f'the score improves by at least {_pct(a.min_improvement)}')
-    if a.segment_improvement:
-        rules.append(f'the prefill or the decode mean improves by at least {_pct(a.segment_improvement)} while the '
-                     f'other mean and the score get worse by at most {_pct(a.max_regression)}')
-    if a.case_improvement:
-        rules.append(f'one case\'s prefill or decode speedup improves by at least {_pct(a.case_improvement)} while the '
-                     f'score gets worse by at most {_pct(a.max_regression)}')
+    rules = rules_text(task)
     out += ['## 7. Acceptance: when a candidate replaces the best engine', '',
             '- It must pass every gate of section 4 and complete the evaluation.',
             '- The first candidate that passes becomes the best engine, however slow it is.',
@@ -224,13 +313,19 @@ def explain(task: Task) -> str:
             '- Only weighted cases and segments count. The thresholds sit above the timing noise of an unchanged '
             'engine (about 1% for the means, up to 4% for one case); lowering them accepts smaller steps and more '
             'noise. A rejected candidate stays in the run\'s history (its commit is kept).', '']
+    return out
 
+
+def _after_and_budget(task: Task, estimate: float | None) -> list[str]:
+    e, b = task.evaluation, task.budget
+    out = []
     q = task.quality
     out += ['## 8. After the search', '',
             f'- Final: the best engine is evaluated once more, {e.final_rounds} paired rounds on held-out prompts drawn '
             'from a seed created after the last session; this is the result to report.',
             '- Decode probe: the best engine decodes the same tokens in one request and one token per request; '
-            'the ratio is reported, not gated.']
+            'the ratio is reported, not gated.' if task.mode == 'single' else
+            '- Decode probe: not run for a concurrent task.']
     out.append(f'- Task accuracy: {", ".join(q.benchmarks)}, {q.samples} items each, greedy decoding, at most '
                f'{q.max_tokens:,} output tokens, time limit {_hours(q.time_limit_s)}; the engine and the reference answer the '
                'same items; reported next to each other with the speed on these prompts, not gated.' if q else
@@ -248,4 +343,4 @@ def explain(task: Task) -> str:
             f'- Rough upper bound for the search: {b.sessions} x ({_hours(b.session_timeout_s)} + {_hours(evaluation_s)})'
             f' = {_hours(b.sessions * (b.session_timeout_s + evaluation_s))}; sessions usually end earlier.',
             '- The agent runs on your own login or API key; its cost is recorded per round when it reports one.', '']
-    return '\n'.join(out)
+    return out

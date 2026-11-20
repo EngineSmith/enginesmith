@@ -8,6 +8,11 @@ Flags: --reference (also answers judge and stats), --wrong-from K (tokens from s
 --wrong-length N (only for prompts of length N), --speed F, --crash-after N (exit after N generate requests),
 --load-s S (sleep before answering hello), --leak (start a long-lived child process), --rank R (the rank a
 reference reports for a mismatching token), --speculate N (one forward pass per N tokens of a request).
+
+--concurrent speaks protocol 2 (docs/protocol.md): submit requests, streamed tokens. --batch N decodes up to N requests
+per step (a step costs DECODE_S however many requests it holds; a new request's prefill pauses decoding); --batch 1
+serves one request at a time. --burst sends a request's tokens only when it has all of them. --bad-id sends a token
+for a request that is not in flight.
 """
 import argparse
 import json
@@ -36,7 +41,13 @@ def main():
     parser.add_argument('--load-s', type=float, default=0.0)
     parser.add_argument('--leak', action='store_true')
     parser.add_argument('--rank', type=int, default=2, help='the rank a reference reports for a mismatch')
+    parser.add_argument('--concurrent', action='store_true')
+    parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('--burst', action='store_true')
+    parser.add_argument('--bad-id', action='store_true')
     args = parser.parse_args()
+    if args.concurrent:
+        return concurrent(args)
     if args.leak:
         subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])
     sequence, prompt_length, generated, requests = [], 0, 0, 0
@@ -80,6 +91,70 @@ def main():
             reply = {'id': request['id'], 'ok': False, 'error': f'unknown op {op}'}
         sys.stdout.write(json.dumps(reply) + '\n')
         sys.stdout.flush()
+
+
+def concurrent(args):
+    import queue
+    import threading
+    inbox = queue.Queue()
+
+    def reader():
+        for line in sys.stdin:
+            inbox.put(json.loads(line))
+        inbox.put(None)
+    threading.Thread(target=reader, daemon=True).start()
+
+    def write(event):
+        sys.stdout.write(json.dumps(event) + '\n')
+        sys.stdout.flush()
+    waiting, active, closed = [], [], False
+    while True:
+        block = not waiting and not active and not closed
+        try:
+            while True:
+                request = inbox.get(block=block)
+                block = False
+                if request is None:
+                    closed = True
+                    break
+                if request['op'] == 'hello':
+                    time.sleep(args.load_s)
+                    write({'id': request['id'], 'ok': True, 'protocol': 2})
+                elif request['op'] == 'submit':
+                    waiting.append({'id': request['id'], 'sequence': list(request['prompt']), 'left': request['max_tokens'],
+                                    'generated': 0, 'held': []})
+                else:
+                    write({'id': request.get('id'), 'ok': False, 'error': f'unknown op {request["op"]}'})
+        except queue.Empty:
+            pass
+        if closed and not waiting and not active:
+            return
+        while waiting and len(active) < args.batch:
+            r = waiting.pop(0)
+            time.sleep(PREFILL_S * len(r['sequence']) / args.speed)
+            active.append(r)
+        if not active:
+            continue
+        time.sleep(DECODE_S / args.speed)
+        out = []
+        for r in active:
+            token = next_token(r['sequence'], args.vocab)
+            if args.wrong_from is not None and r['generated'] >= args.wrong_from:
+                token = (token + 1) % args.vocab
+            r['sequence'].append(token)
+            r['generated'] += 1
+            r['left'] -= 1
+            r['held'].append(token)
+            if not args.burst:
+                out.append([r['id'], token])
+        for r in active:
+            if args.burst and r['left'] == 0:
+                out += [[r['id'], t] for t in r['held']]
+        if args.bad_id:
+            out.append(['nobody', 1])
+        if out:
+            write({'tokens': out})
+        active = [r for r in active if r['left'] > 0]
 
 
 if __name__ == '__main__':

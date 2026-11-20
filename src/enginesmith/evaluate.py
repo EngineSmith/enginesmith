@@ -37,7 +37,7 @@ TIMEOUT_FACTOR = 50
 MIN_TIMEOUT = 300.0
 # The version of the judging rules, the judging zone of zones.toml. A change to that zone adds a version there and
 # sets this to it; runs, reports and shared engines record it.
-EVALUATION_VERSION = 3
+EVALUATION_VERSION = 4
 WARMUP_LENGTH = 2048
 
 
@@ -302,5 +302,8 @@ class Evaluator:
 
 
 def rows(result: dict) -> tuple:
-    """The acceptance rows of an evaluation result."""
+    """The acceptance rows of an evaluation result (a concurrent one's: enginesmith.concurrent.rows)."""
+    if result.get('mode') == 'concurrent':
+        from enginesmith.concurrent import rows as concurrent_rows
+        return concurrent_rows(result)
     return tuple((c['id'], c['length'], c['prefill_speedup'], c['decode_speedup']) for c in result['cases'])

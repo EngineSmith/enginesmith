@@ -10,6 +10,7 @@ import re
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from enginesmith import agents, workload
 
@@ -35,9 +36,60 @@ class Objective:
     prefill: float = 0.5
     decode: float = 0.5
     length_weights: dict[int, float] = field(default_factory=dict)  # length -> weight; a missing length weighs 1
+    SEGMENTS: ClassVar[tuple[str, ...]] = ('prefill', 'decode')
+
+    def weights(self) -> tuple[float, ...]:
+        return self.prefill, self.decode
 
     def case_weight(self, length: int) -> float:
         return self.length_weights.get(length, 1.0)
+
+
+@dataclass(frozen=True)
+class ConcurrentObjective:
+    """A concurrent task's score: the weighted geometric mean of the per-level speedups over the reference in
+    throughput, time to first token and normalized latency (a request's end-to-end time per output token); a term's
+    weight is its level weight times the segment weight. Every weight is written in the task file."""
+    throughput: float
+    ttft: float
+    latency: float
+    level_weights: dict[int, float]
+    SEGMENTS: ClassVar[tuple[str, ...]] = ('throughput', 'ttft', 'latency')
+
+    def weights(self) -> tuple[float, ...]:
+        return self.throughput, self.ttft, self.latency
+
+    def case_weight(self, level: int) -> float:
+        return self.level_weights.get(level, 0.0)
+
+
+@dataclass(frozen=True)
+class Concurrent:
+    """The concurrent workload (docs/task.md): per concurrency level, requests_per_level independent requests from
+    `level` closed-loop clients, prompt and output lengths drawn from the ranges."""
+    preset: str | None
+    arrival: str                      # 'closed': a client sends its next request when its last one has finished
+    levels: tuple[int, ...]
+    requests_per_level: int
+    prompt_range: tuple[int, int]
+    output_range: tuple[int, int]
+    stagger_s: float                  # the clients' first requests start within this many seconds
+
+
+# Starting points for a concurrent task; the setup agent copies one into the task file, where every value is written.
+# A task names the preset it came from (`[workload] preset`), and the plan lists what it changed.
+PRESETS = {
+    'batch': {'levels': [4, 16], 'level_weights': {4: 0.3, 16: 0.7}, 'throughput': 1.0, 'ttft': 0.0, 'latency': 0.0,
+              'prompt_range': [256, 4096], 'output_range': [64, 512]},
+    'interactive': {'levels': [1, 4], 'level_weights': {1: 0.5, 4: 0.5}, 'throughput': 0.4, 'ttft': 0.3,
+                    'latency': 0.3, 'prompt_range': [256, 4096], 'output_range': [64, 512]},
+    'service': {'levels': [4, 8, 16], 'level_weights': {4: 1 / 3, 8: 1 / 3, 16: 1 / 3}, 'throughput': 0.6,
+                'ttft': 0.2, 'latency': 0.2, 'prompt_range': [256, 4096], 'output_range': [64, 1024]},
+    'longdoc': {'levels': [1, 4], 'level_weights': {1: 0.6, 4: 0.4}, 'throughput': 0.0, 'ttft': 0.75, 'latency': 0.25,
+                'prompt_range': [8192, 65536], 'output_range': [64, 256]},
+}
+# Correctness-only control prompts of a concurrent task generate this many tokens each.
+CONCURRENT_CONTROL_TOKENS = 65
 
 
 @dataclass(frozen=True)
@@ -101,7 +153,7 @@ class Task:
     lengths: tuple[int, ...]
     output_tokens: int
     controls: bool
-    objective: Objective
+    objective: Objective | ConcurrentObjective
     acceptance: Acceptance
     gates: Gates
     evaluation: Evaluation
@@ -111,13 +163,22 @@ class Task:
     reference_kind: str | None = None  # enginesmith.references.KINDS; None: the platform's default
     one_forward_per_token: bool | None = True  # the brief's decode rule; None: a run from before the rule
     reference_tp: int = 1  # tensor-parallel degree of the reference (and the accelerator cores an engine gets)
+    mode: str = 'single'   # 'single': one request at a time (prompt lengths); 'concurrent': concurrency levels
+    concurrent: Concurrent | None = None
 
     def cases(self) -> list[workload.Case]:
+        """The timed cases and the controls of a single-request task; only the controls of a concurrent one."""
+        if self.mode == 'concurrent':
+            return workload.cases((), CONCURRENT_CONTROL_TOKENS, None, self.controls)
         return workload.cases(self.lengths, self.output_tokens, self.objective.length_weights, self.controls)
 
     def max_request_length(self) -> int:
         """The most positions one request can need: the longest prompt and its generated tokens, or a task-accuracy
         prompt (chat-templated, a few thousand tokens at most) and its output."""
+        if self.mode == 'concurrent':
+            c = self.concurrent
+            controls = max((x.length for x in self.cases()), default=0) + CONCURRENT_CONTROL_TOKENS
+            return max(c.prompt_range[1] + c.output_range[1], controls)
         longest = max(c.length for c in self.cases()) + self.output_tokens
         return max(longest, self.quality.max_tokens + 4096) if self.quality else longest
 
@@ -141,17 +202,26 @@ class Task:
         def argv(value):
             return None if value is None else tuple(value)
         o = data['objective']
+        mode = data.get('mode', 'single')
+        if mode == 'concurrent':
+            c = data['concurrent']
+            objective = ConcurrentObjective(o['throughput'], o['ttft'], o['latency'],
+                                            {int(k): v for k, v in o['level_weights'].items()})
+            concurrent = Concurrent(c['preset'], c['arrival'], tuple(c['levels']), c['requests_per_level'],
+                                    tuple(c['prompt_range']), tuple(c['output_range']), c['stagger_s'])
+        else:
+            objective = Objective(o['prefill'], o['decode'], {int(k): v for k, v in o['length_weights'].items()})
+            concurrent = None
         return cls(Path(data['path']), data['name'], Path(data['model']), path(data['model_card']),
                    data['vocab_size'], argv(data['reference']), path(data['seed']), data['evaluate_seed'],
                    tuple(data['build']), data['executable'], data['native'], Path(data['skill']), data['agent'],
                    data['agent_model'], argv(data['agent_command']), tuple(data['lengths']), data['output_tokens'],
-                   data['controls'],
-                   Objective(o['prefill'], o['decode'], {int(k): v for k, v in o['length_weights'].items()}),
+                   data['controls'], objective,
                    Acceptance(**data['acceptance']), Gates(**data['gates']), Evaluation(**data['evaluation']),
                    Budget(**data['budget']),
                    Quality(**{**data['quality'], 'benchmarks': tuple(data['quality']['benchmarks'])})
                    if data.get('quality') else None, data.get('model_source'), data.get('reference_kind'),
-                   data.get('one_forward_per_token'), data.get('reference_tp', 1))
+                   data.get('one_forward_per_token'), data.get('reference_tp', 1), mode, concurrent)
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.to_json(), sort_keys=True).encode()).hexdigest()
@@ -311,8 +381,11 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
         raise TaskError('agent.command looks like it contains a credential; the task is copied into every session, '
                         'so set API keys in your environment or in the agent\'s own configuration')
 
-    w = _table(data, 'workload', {'lengths', 'output_tokens', 'controls', 'vocab_size'})
-    output_tokens = _number(w, 'output_tokens', 65, 2, 8192, 'workload', integer=True)
+    w = _table(data, 'workload', {'lengths', 'output_tokens', 'controls', 'vocab_size', 'mode', 'preset', 'arrival',
+                                  'levels', 'requests_per_level', 'prompt_range', 'output_range', 'stagger'})
+    mode = w.get('mode', 'single')
+    if mode not in ('single', 'concurrent'):
+        raise TaskError('workload.mode must be "single" or "concurrent"')
     controls = w.get('controls', True)
     if type(controls) is not bool:
         raise TaskError('workload.controls must be true or false')
@@ -325,30 +398,39 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
             raise TaskError('no vocab_size in the model config.json; set workload.vocab_size')
     else:
         vocab = 0
-    if 'lengths' in w:
-        lengths = w['lengths']
-    elif context := max_context(config):
-        lengths = default_lengths(context, output_tokens)
+    if mode == 'concurrent':
+        concurrent, objective = _concurrent(data, w)
+        lengths, output_tokens = [], 0
     else:
-        raise TaskError('the model config.json states no context length (max_position_embeddings); set '
-                        'workload.lengths')
-    if (type(lengths) is not list or not lengths or len(set(lengths)) != len(lengths)
-            or not all(type(n) is int and 1 <= n <= workload.MAX_LENGTH for n in lengths)):
-        raise TaskError(f'workload.lengths must be distinct integers in [1, {workload.MAX_LENGTH}]')
+        concurrent = None
+        extra = {'preset', 'arrival', 'levels', 'requests_per_level', 'prompt_range', 'output_range', 'stagger'} & set(w)
+        if extra:
+            raise TaskError(f'workload.{", workload.".join(sorted(extra))} need workload.mode = "concurrent"')
+        output_tokens = _number(w, 'output_tokens', 65, 2, 8192, 'workload', integer=True)
+        if 'lengths' in w:
+            lengths = w['lengths']
+        elif context := max_context(config):
+            lengths = default_lengths(context, output_tokens)
+        else:
+            raise TaskError('the model config.json states no context length (max_position_embeddings); set '
+                            'workload.lengths')
+        if (type(lengths) is not list or not lengths or len(set(lengths)) != len(lengths)
+                or not all(type(n) is int and 1 <= n <= workload.MAX_LENGTH for n in lengths)):
+            raise TaskError(f'workload.lengths must be distinct integers in [1, {workload.MAX_LENGTH}]')
 
-    o = _table(data, 'objective', {'prefill', 'decode', 'length_weights'})
-    weights = o.get('length_weights', {})
-    if type(weights) is not dict:
-        raise TaskError('objective.length_weights must be a table of length = weight')
-    length_weights = {}
-    for key, value in weights.items():
-        if not key.isdigit() or int(key) not in lengths:
-            raise TaskError(f'objective.length_weights: {key} is not one of workload.lengths')
-        length_weights[int(key)] = _number(weights, key, None, 0, 1e6, 'objective.length_weights')
-    objective = Objective(_number(o, 'prefill', 0.5, 0, 1e6, 'objective'),
-                          _number(o, 'decode', 0.5, 0, 1e6, 'objective'), length_weights)
-    if objective.prefill + objective.decode <= 0 or not any(objective.case_weight(n) > 0 for n in lengths):
-        raise TaskError('the objective weights must not all be zero')
+        o = _table(data, 'objective', {'prefill', 'decode', 'length_weights'})
+        weights = o.get('length_weights', {})
+        if type(weights) is not dict:
+            raise TaskError('objective.length_weights must be a table of length = weight')
+        length_weights = {}
+        for key, value in weights.items():
+            if not key.isdigit() or int(key) not in lengths:
+                raise TaskError(f'objective.length_weights: {key} is not one of workload.lengths')
+            length_weights[int(key)] = _number(weights, key, None, 0, 1e6, 'objective.length_weights')
+        objective = Objective(_number(o, 'prefill', 0.5, 0, 1e6, 'objective'),
+                              _number(o, 'decode', 0.5, 0, 1e6, 'objective'), length_weights)
+        if objective.prefill + objective.decode <= 0 or not any(objective.case_weight(n) > 0 for n in lengths):
+            raise TaskError('the objective weights must not all be zero')
 
     c = _table(data, 'acceptance', {'min_improvement', 'segment_improvement', 'case_improvement', 'max_regression'})
     acceptance = Acceptance(*(_number(c, key, getattr(Acceptance, key), 0, 0.99, 'acceptance')
@@ -372,6 +454,8 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
                     duration(a['session_timeout'], 'agent.session_timeout') if 'session_timeout' in a else 7200.0)
 
     quality = _quality(data) if 'quality' in data else None
+    if mode == 'concurrent' and quality:
+        raise TaskError('[quality] is not supported with workload.mode = "concurrent" yet')
 
     if check_paths:
         for label, item in (('model.path', model), ('engine.skill', skill), ('engine.seed', seed)):
@@ -383,7 +467,66 @@ def load_task(path: Path | str, *, check_paths: bool = True) -> Task:
             raise TaskError(f'engine.skill: {skill} has no SKILL.md')
     return Task(path, name, model, card, vocab, reference, seed, evaluate_seed, build, executable, native, skill,
                 agent, agent_model, agent_command, tuple(sorted(lengths)), output_tokens, controls, objective,
-                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward, reference_tp)
+                acceptance, gates, evaluation, budget, quality, source, reference_kind, one_forward, reference_tp, mode,
+                concurrent)
+
+
+def _pair(value, name: str, low: int, high: int) -> tuple[int, int]:
+    if (type(value) is not list or len(value) != 2 or not all(type(v) is int for v in value)
+            or not low <= value[0] <= value[1] <= high):
+        raise TaskError(f'{name} must be [low, high], integers with {low} <= low <= high <= {high}')
+    return value[0], value[1]
+
+
+def _concurrent(data: dict, w: dict) -> tuple[Concurrent, ConcurrentObjective]:
+    """The concurrent workload and its objective. Every value is required: a task states its whole workload and
+    weighting, and `preset` only records where they came from."""
+    required = ('arrival', 'levels', 'requests_per_level', 'prompt_range', 'output_range', 'stagger')
+    missing = [key for key in required if key not in w]
+    if missing:
+        raise TaskError(f'workload.mode = "concurrent" needs workload.{", workload.".join(missing)} '
+                        '(docs/task.md lists the presets to copy them from)')
+    for key in ('lengths', 'output_tokens'):
+        if key in w:
+            raise TaskError(f'workload.{key} applies to workload.mode = "single"; a concurrent task uses '
+                            'workload.prompt_range and workload.output_range')
+    preset = w.get('preset')
+    if preset is not None and preset not in PRESETS:
+        raise TaskError(f'workload.preset must be one of {", ".join(PRESETS)}')
+    if w['arrival'] != 'closed':
+        raise TaskError('workload.arrival must be "closed" (closed-loop clients; other arrivals are not supported '
+                        'yet)')
+    levels = w['levels']
+    if (type(levels) is not list or not levels or len(set(levels)) != len(levels)
+            or not all(type(n) is int and 1 <= n <= 256 for n in levels)):
+        raise TaskError('workload.levels must be distinct integers in [1, 256]')
+    levels = sorted(levels)
+    requests = _number(w, 'requests_per_level', None, 1, 100000, 'workload', integer=True)
+    if requests < levels[-1]:
+        raise TaskError(f'workload.requests_per_level ({requests}) must be at least the highest level ({levels[-1]}), '
+                        'so that every client sends a request')
+    prompt_range = _pair(w['prompt_range'], 'workload.prompt_range', 1, workload.MAX_LENGTH)
+    output_range = _pair(w['output_range'], 'workload.output_range', 2, 8192)
+    stagger = duration(w['stagger'], 'workload.stagger', zero=True)
+
+    o = _table(data, 'objective', {'throughput', 'ttft', 'latency', 'level_weights'})
+    missing = [key for key in ('throughput', 'ttft', 'latency', 'level_weights') if key not in o]
+    if missing:
+        raise TaskError(f'workload.mode = "concurrent" needs objective.{", objective.".join(missing)}')
+    for key in ('prefill', 'decode', 'length_weights'):
+        if key in o:
+            raise TaskError(f'objective.{key} applies to workload.mode = "single"')
+    table = o['level_weights']
+    if type(table) is not dict or {k for k in table} != {str(n) for n in levels}:
+        raise TaskError('objective.level_weights must give a weight for every level of workload.levels, and only '
+                        'for those')
+    level_weights = {int(k): _number(table, k, None, 0, 1e6, 'objective.level_weights') for k in table}
+    objective = ConcurrentObjective(*(_number(o, key, None, 0, 1e6, 'objective') for key in ('throughput', 'ttft',
+                                                                                              'latency')),
+                                    level_weights)
+    if sum(objective.weights()) <= 0 or not any(v > 0 for v in level_weights.values()):
+        raise TaskError('the objective weights must not all be zero')
+    return Concurrent(preset, 'closed', tuple(levels), requests, prompt_range, output_range, stagger), objective
 
 
 def _quality(data: dict) -> Quality:
