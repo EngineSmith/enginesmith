@@ -21,6 +21,7 @@ files = [
 files = [
     "src/enginesmith/__init__.py",
     "src/enginesmith/agents.py",              # coding sessions; adding an agent's entries is a welcome change
+    "src/enginesmith/agentx.py",              # external replay diagnostics; no scoring
     "src/enginesmith/brief.py",
     "src/enginesmith/cli.py",
     "src/enginesmith/decode_probe.py",

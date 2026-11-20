@@ -62,6 +62,10 @@ def main(argv=None) -> int:
                                      'model on this machine with a coding agent.')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('doctor', help='machine, toolchain and agent facts (JSON)')
+    p = sub.add_parser('agentx-check', help='diagnostic: run a pinned external AgentX client')
+    p.add_argument('manifest', type=Path)
+    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--dry-run', action='store_true', help='validate and print argv without running AgentX')
     p = sub.add_parser('service-check', help='diagnostic: supervise local services around an external workload')
     p.add_argument('manifest', type=Path)
     p.add_argument('--out', type=Path, required=True, help='fresh directory for lifecycle results and logs')
@@ -136,6 +140,11 @@ def main(argv=None) -> int:
         if args.command == 'doctor':
             from enginesmith.setup_tools import doctor
             emit(doctor())
+        elif args.command == 'agentx-check':
+            from enginesmith.agentx import run
+            result = run(args.manifest, args.out, dry_run=args.dry_run)
+            emit(result)
+            return 0 if args.dry_run or result['completed'] else 1
         elif args.command == 'service-check':
             from enginesmith.services import check
             result = check(args.manifest, args.out)

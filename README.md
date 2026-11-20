@@ -20,7 +20,9 @@ skill backend. Support for other platforms plugs in without changing the core, s
 
 The opt-in [`service-check` diagnostic](docs/services.md) supervises local foreground services around an external
 workload, retaining lifecycle results and logs. It is a foundation for service experiments; it does not yet add
-multi-node execution, AgentX, or service scoring to an EngineSmith search.
+multi-node execution or service scoring to an EngineSmith search. The optional
+[`agentx-check` diagnostic](docs/agentx.md) invokes a pinned external AgentX client against an existing endpoint
+and checks its exported configuration; it does not add a search score or a coding-quality evaluation.
 
 ## What a specialized engine is
 
