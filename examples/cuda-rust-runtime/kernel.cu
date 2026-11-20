@@ -64,7 +64,8 @@ extern "C" int runtime_create(std::size_t count, State** output) {
 }
 
 extern "C" int runtime_run(State* state, unsigned repetitions, int graph, float* elapsed_ms) {
-    if (!state || !repetitions || !elapsed_ms) return cudaErrorInvalidValue;
+    if (!state || !repetitions || repetitions > (1U << 24) || !elapsed_ms ||
+        (graph != 0 && graph != 1)) return cudaErrorInvalidValue;
     cudaError_t status = cudaMemsetAsync(state->values, 0, state->count * sizeof(float), state->stream);
     if (status == cudaSuccess) status = cudaEventRecord(state->begin, state->stream);
     for (unsigned i = 0; i < repetitions && status == cudaSuccess; ++i) {
