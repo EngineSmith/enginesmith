@@ -29,6 +29,8 @@ files = [
     "src/enginesmith/explain.py",
     "src/enginesmith/platforms/__init__.py",  # the platform interface
     "src/enginesmith/processes.py",
+    "src/enginesmith/remote.py",             # diagnostic SSH command controller
+    "src/enginesmith/remote_worker.py",      # lease-owned remote process group
     "src/enginesmith/quality.py",
     "src/enginesmith/references/__init__.py", # the registry of references
     "src/enginesmith/report.py",

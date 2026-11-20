@@ -21,6 +21,8 @@ skill backend. Support for other platforms plugs in without changing the core, s
 The opt-in [`service-check` diagnostic](docs/services.md) supervises local foreground services around an external
 workload, retaining lifecycle results and logs. It is a foundation for service experiments; it does not yet add
 multi-node execution, AgentX, or service scoring to an EngineSmith search.
+The experimental [`remote-exec` helper](docs/remote-services.md) owns one remote foreground command through a
+heartbeat lease. It does not allocate cluster resources or establish GPU/model validation.
 
 ## What a specialized engine is
 
