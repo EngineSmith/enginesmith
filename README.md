@@ -17,6 +17,8 @@ on Linux (ROCm, SGLang as the reference) and AWS Trainium2 (NxD Inference as the
 Linux/CUDA [prerequisite support](docs/cuda-prerequisites.md) provides device selection and native build checks;
 it requires an externally validated reference command and does not yet include a built-in reference or an engine
 skill backend. Support for other platforms plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
+An opt-in [service comparison diagnostic](docs/service-comparison.md) checks experiment compatibility and reports
+paired measurements and missing evidence. It does not change candidate acceptance or the evaluation version.
 
 ## What a specialized engine is
 
