@@ -109,9 +109,6 @@ def main(argv=None) -> int:
     p.add_argument('--license', choices=('MIT', 'Apache-2.0', 'none'), default='MIT',
                    help="the engine's license, under your name (default: MIT)")
     p.add_argument('--private', action='store_true', help='make the repository private (the post is still made)')
-    p.add_argument('--owner', help='the GitHub organization the repository goes to (default: your own account); '
-                   "EngineSmith's maintainers use EngineSmith for an engine they approved. The license stays in your "
-                   'name')
     p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local reference')
     p.add_argument('package', help="a package directory, its zip, or its repository's URL")
     p.add_argument('--model', type=Path, required=True, help='the model directory (the same files as the package\'s)')
@@ -238,7 +235,7 @@ def main(argv=None) -> int:
             from enginesmith.run import Run
             from enginesmith.share import share
             emit(share(Run(args.run), args.round, args.out, binary=args.binary, post=not args.no_post,
-                       private=args.private, license=args.license, owner=args.owner))
+                       private=args.private, license=args.license))
         elif args.command == 'verify':
             from enginesmith.share import verify
             lengths = [int(n) for n in args.lengths.split(',')] if args.lengths else None

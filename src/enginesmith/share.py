@@ -278,11 +278,10 @@ def _license_text(license: str, holder: str) -> str | None:
     return (REPO / 'LICENSE').read_text() if license == 'Apache-2.0' else None
 
 
-def _holder(login: str | None) -> str:
-    """Who shares the engine: the sharer's GitHub login when it is published (also when the repository goes to an
-    organization), else git's user.name."""
-    if login:
-        return login
+def _holder(repository: str | None) -> str:
+    """Who shares the engine: the GitHub account it is published under, else git's user.name."""
+    if repository:
+        return repository.rstrip('/').split('/')[-2]
     name = subprocess.run(['git', 'config', 'user.name'], capture_output=True, text=True).stdout.strip()
     return name or 'the author of this engine'
 
@@ -319,8 +318,7 @@ def _engines_category() -> tuple[str, str]:
 
 
 def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
-    """The package becomes a GitHub repository (the sharer's account or an organization), and a post in the Engines
-    category links it."""
+    """The package becomes the sharer's GitHub repository, and a post in the Engines category links it."""
     target, category = _engines_category()  # first, so that nothing is created when the post cannot be made
     engine_repo.git('init', '-q', '-b', 'main', cwd=package)
     engine_repo.git('add', '-A', cwd=package)
@@ -344,12 +342,10 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
 
 
 def share(run, label: str | None = None, out: Path | None = None, binary: bool = False, post: bool = False,
-          private: bool = False, license: str = 'MIT', owner: str | None = None) -> dict:
+          private: bool = False, license: str = 'MIT') -> dict:
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
-    user's GitHub account, or of owner (an organization the user may create repositories in; EngineSmith's maintainers
-    use EngineSmith for an engine they approved), public unless private, and a post in EngineSmith's Discussions
-    (category Engines) shows its results and links it; this uses the GitHub CLI and the user's login. The license is
-    in the user's name either way."""
+    user's GitHub account (public unless private) and a post in EngineSmith's Discussions (category Engines) shows its
+    results and links it; this uses the GitHub CLI and the user's login."""
     label = label or run.state['incumbent']
     if not label or not (run.round_dir(label) / 'engine').is_file():
         raise ValueError('nothing to share: the run has no built engine for that round')
@@ -357,8 +353,6 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     info = describe(run, label)
     if license not in LICENSES:
         raise ValueError(f'license must be one of {", ".join(LICENSES)}')
-    if owner is not None and not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', owner):
-        raise ValueError(f'owner must be a GitHub account or organization name, not {owner!r}')
     info['engine'].update(binary=binary, license=license)
     root = Path(out) if out else run.dir / 'share'
     package = root / info['name']
@@ -371,14 +365,13 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     if binary:
         (package / 'bin').mkdir()
         shutil.copy2(run.round_dir(label) / 'engine', package / 'bin' / 'engine')
-    repository, login, error = None, None, None
+    repository, error = None, None
     if post:
         try:
-            login = _gh('api', 'user', '--jq', '.login').strip()
-            repository = f'https://github.com/{owner or login}/{repository_name(info)}'
+            repository = f'https://github.com/{_gh("api", "user", "--jq", ".login").strip()}/{repository_name(info)}'
         except PostError as exc:
             error = exc
-    if text := _license_text(license, _holder(login)):
+    if text := _license_text(license, _holder(repository)):
         (package / 'LICENSE').write_text(text)
     (package / 'enginesmith.json').write_text(json.dumps(info, indent=2))
     (package / 'README.md').write_text(readme(info, repository))

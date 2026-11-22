@@ -171,8 +171,7 @@ shared result never has to be taken on trust. Read the source before you run an 
 The post is also a submission. EngineSmith's maintainers read it, and an engine they approve is forked into the
 [EngineSmith organization](https://github.com/EngineSmith), where GitHub keeps the link to its author's repository and
 the license stays in the author's name. Reproducing it with `verify` on the same hardware is optional; the maintainers
-say in the post whether they did. Maintainers publish their own approved engines there directly with
-`--owner EngineSmith`.
+say in the post whether they did. Maintainers share their own engines the same way and may approve them themselves.
 
 ## Documentation
 
