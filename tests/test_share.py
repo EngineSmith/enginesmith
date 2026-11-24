@@ -26,6 +26,19 @@ def finished_run(tmp_path, model_dir, monkeypatch):
     return run
 
 
+
+def test_a_final_that_did_not_complete_is_not_the_engines_result(finished_run, tmp_path):
+    # It stopped on an error before judging anything (for example a core still held by another process).
+    path = finished_run.dir / 'final' / 'evaluation' / 'result.json'
+    result = json.loads(path.read_text())
+    path.write_text(json.dumps({**result, 'complete': False, 'passed': False, 'score': None, 'segments': None,
+                                'gates': {'allowed': 0, 'total_mismatches': 0, 'total_steps': 0}}))
+    share(finished_run, out=tmp_path / 'out')
+    package = tmp_path / 'out' / 'test-task-round001'
+    assert json.loads((package / 'enginesmith.json').read_text())['final'] is None
+    readme = (package / 'README.md').read_text()
+    assert '(search evaluation)' in readme and 'FAILED' not in readme
+
 def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model_dir):
     result = share(finished_run, out=tmp_path / 'out')
     package = tmp_path / 'out' / 'test-task-round001'
