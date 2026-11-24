@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A stand-in for the GitHub CLI in the share tests: it records every call in $FAKE_GH_LOG and answers like gh would
 for the calls `enginesmith share` makes. With FAKE_GH_NO_CATEGORY set, EngineSmith's Discussions have no Engines
-category."""
+category. With FAKE_GH_REMOTES set, a repository created without --source is a bare repository OWNER/NAME.git in that
+directory, and `repo view` finds the repositories there."""
 import json
 import os
 import subprocess
@@ -21,6 +22,13 @@ elif args[:2] == ['api', 'graphql'] and 'createDiscussion' in args[3]:
 elif args[:2] == ['api', 'graphql']:
     nodes = [] if os.environ.get('FAKE_GH_NO_CATEGORY') else [{'id': 'C1', 'slug': 'engines'}]
     print(json.dumps({'data': {'repository': {'id': 'R1', 'discussionCategories': {'nodes': nodes}}}}))
+elif args[:2] == ['repo', 'view']:
+    sys.exit(0 if (Path(os.environ['FAKE_GH_REMOTES']) / f'{args[2]}.git').is_dir() else 'not found')
+elif args[:2] == ['repo', 'create'] and '--source' not in args:
+    bare = Path(os.environ['FAKE_GH_REMOTES']) / f'{args[2]}.git'
+    bare.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(bare)], check=True)
+    print(f'https://github.com/{args[2]}')
 elif args[:2] == ['repo', 'create']:
     source = Path(args[args.index('--source') + 1])
     assert subprocess.run(['git', 'log', '-1'], cwd=source, capture_output=True).returncode == 0

@@ -11,6 +11,7 @@ import pytest
 
 from conftest import fake_engine, write_task
 from enginesmith.run import Run
+from enginesmith import share as share_module
 from enginesmith.share import share, verify
 from enginesmith.task import load_task
 
@@ -123,6 +124,76 @@ def test_share_can_publish_to_an_organization_in_the_sharers_name(finished_run, 
     with pytest.raises(ValueError, match='owner must be'):
         share(finished_run, out=tmp_path / 'out', post=True, owner='../evil')
 
+
+
+@pytest.fixture
+def remotes(tmp_path, fake_gh, monkeypatch):
+    """GitHub's repositories, as bare repositories in a directory (tests/fake_gh.py makes them)."""
+    monkeypatch.setenv('FAKE_GH_REMOTES', str(tmp_path / 'remotes'))
+    monkeypatch.setattr(share_module, '_remote', lambda slug: str(tmp_path / 'remotes' / f'{slug}.git'))
+    return tmp_path / 'remotes'
+
+
+def _files(bare: Path, tmp_path: Path) -> Path:
+    clone = tmp_path / f'look-{len(list(tmp_path.glob("look-*")))}'
+    subprocess.run(['git', 'clone', '-q', str(bare), str(clone)], check=True)
+    return clone
+
+
+def test_share_into_a_collection_keeps_several_engines_in_one_repository(finished_run, tmp_path, fake_gh, remotes):
+    result = share(finished_run, out=tmp_path / 'out', post=True, collection='engines')
+    url = 'https://github.com/alice/engines/tree/main/test-task-round001'
+    assert result['posted']['repository'] == url
+    calls = [json.loads(line) for line in fake_gh.read_text().splitlines()]
+    assert [c[:2] for c in calls] == [['api', 'user'], ['api', 'graphql'], ['repo', 'view'], ['repo', 'create'],
+                                      ['api', 'graphql']]
+    assert calls[3][2] == 'alice/engines' and '--public' in calls[3] and '--source' not in calls[3]
+    body = fake_gh.with_suffix('.body.md').read_text()
+    assert f'enginesmith verify {url}' in body
+    clone = _files(remotes / 'alice' / 'engines.git', tmp_path)
+    assert (clone / 'test-task-round001' / 'source' / 'engine').is_file()
+    assert (clone / 'test-task-round001' / 'LICENSE').is_file() and not (clone / 'LICENSE').exists()
+    # Another engine arrives from elsewhere; sharing this one again replaces its directory and keeps the other.
+    other = json.loads((clone / 'test-task-round001' / 'enginesmith.json').read_text())
+    other['name'] = 'other-task-round004'
+    (clone / 'other-task-round004').mkdir()
+    (clone / 'other-task-round004' / 'enginesmith.json').write_text(json.dumps(other))
+    (clone / 'test-task-round001' / 'stale.txt').write_text('gone after the next share')
+    subprocess.run(['git', 'add', '-A'], cwd=clone, check=True)
+    subprocess.run(['git', '-c', 'user.name=a', '-c', 'user.email=a@a', 'commit', '-qm', 'other'], cwd=clone, check=True)
+    subprocess.run(['git', 'push', '-q', 'origin', 'HEAD:main'], cwd=clone, check=True)
+    fake_gh.write_text('')
+    share(finished_run, out=tmp_path / 'out', post=True, collection='engines')
+    assert ['repo', 'create'] not in [json.loads(line)[:2] for line in fake_gh.read_text().splitlines()]
+    clone = _files(remotes / 'alice' / 'engines.git', tmp_path)
+    assert sorted(p.name for p in clone.iterdir() if p.is_dir() and p.name != '.git') == [
+        'other-task-round004', 'test-task-round001']
+    assert not (clone / 'test-task-round001' / 'stale.txt').exists()
+    readme = (clone / 'README.md').read_text()
+    assert readme.startswith('# engines\n') and '| [other-task-round004](other-task-round004/) |' in readme
+    assert '| [test-task-round001](test-task-round001/) |' in readme
+    with pytest.raises(ValueError, match='collection must be'):
+        share(finished_run, out=tmp_path / 'out', post=True, collection='a/b')
+
+
+def test_verify_checks_an_engine_in_a_collection(finished_run, tmp_path, model_dir, fake_gh, remotes, monkeypatch):
+    share(finished_run, out=tmp_path / 'out', post=True, collection='engines')
+    clone = subprocess.run   # git clones github.com/alice/engines from the bare repository instead
+    seen = []
+
+    def run(command, *args, **kwargs):
+        if command[:2] == ['git', 'clone']:
+            seen.append(command)
+            command = [str(remotes / 'alice' / 'engines.git') if c == 'https://github.com/alice/engines' else c
+                       for c in command]
+        return clone(command, *args, **kwargs)
+    monkeypatch.setattr(share_module.subprocess, 'run', run)
+    result = verify('https://github.com/alice/engines/tree/main/test-task-round001', model_dir,
+                    out=tmp_path / 'check', reference=fake_engine('--reference'), log=lambda m: None)
+    assert result['passed'] and '--branch' in seen[0] and 'main' in seen[0]
+    with pytest.raises(ValueError, match='holds no engine package'):
+        verify('https://github.com/alice/engines/tree/main/missing', model_dir, out=tmp_path / 'check2',
+               log=lambda m: None)
 
 def test_share_creates_nothing_when_it_cannot_post(finished_run, tmp_path, fake_gh, monkeypatch):
     monkeypatch.setenv('FAKE_GH_NO_CATEGORY', '1')
