@@ -112,6 +112,23 @@ on a file). Bound every run you start with a timeout so that a hung engine canno
 - **A micro-benchmark is a diagnostic for one kernel**, never a speedup claim. It can be misleadingly fast when its
   working set stays in an on-chip cache (see `optimization-method.md`). Confirm every kernel-level gain end to end.
 
+### Recorded work, several streams and several devices
+
+An event interval on one stream measures the work ordered between those events. It does not automatically include
+work submitted to another stream or device. Before interpreting a short interval as a request improvement, trace
+the dependencies from every producer to the request's completion boundary. A peer copy, a reduction or a state
+update still in flight belongs to that request even if its token is already available.
+
+Keep device intervals as diagnostics with their stream, device and synchronization boundary recorded. Device
+clocks are separate; do not subtract timestamps from different devices or add overlapping stream durations to
+construct a client latency. Use the normal protocol's completed-request time for the paired comparison, and
+check that instrumentation has not introduced extra synchronization or changed the graph being replayed.
+
+For a short prefill, trace the whole request: reset, partition and fallback dispatch, all layer stages, pending
+state, token selection and reply. A faster projection or a shorter graph can leave another stage unchanged or
+make decode slower. Re-measure both segments through their normal paths rather than estimating a request gain
+from a sum of isolated kernel savings.
+
 ## Reporting
 
 For each change and each length: segment, median ratio, per-round range or standard deviation, rounds and warmups,
@@ -126,6 +143,9 @@ win count, token identity, the machine state, the tool and the log file. Absolut
 - A missing measurement is "not measured" with the reason, never 0 and never left out of a table silently.
 - Keep the raw samples, not only the summary; never delete a log, including those of failed or noisy runs.
 - Report per-length effects, not only an average: a change can help short contexts and hurt long ones.
+- When comparing candidates from different evaluations, retain each candidate's own paired reference samples.
+  Compare their normalized prefill and decode results separately; do not divide one candidate's time by the
+  reference from another evaluation. A weighted aggregate can improve while one segment or length regresses.
 
 ## Reading results that look wrong
 

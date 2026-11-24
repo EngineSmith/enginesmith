@@ -44,6 +44,7 @@ files = [
 # Additions that change nothing that exists: one module per platform.
 files = [
     "src/enginesmith/platforms/generic.py",
+    "src/enginesmith/platforms/linux_cuda.py",
     "src/enginesmith/platforms/linux_rocm.py",
     "src/enginesmith/platforms/macos.py",
     "src/enginesmith/platforms/neuron.py",

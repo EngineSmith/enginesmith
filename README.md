@@ -14,7 +14,9 @@ end-to-end speed of mlx-lm.
 
 **Status: research code under active development.** Apple Silicon (mlx-lm as the reference), AMD Instinct GPUs
 on Linux (ROCm, SGLang as the reference) and AWS Trainium2 (NxD Inference as the reference); see the setup skill.
-Support for other platforms (CUDA, ...) plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Linux/CUDA [prerequisite support](docs/cuda-prerequisites.md) provides device selection and native build checks;
+it requires an externally validated reference command and does not yet include a built-in reference or an engine
+skill backend. Support for other platforms plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## What a specialized engine is
 
@@ -166,6 +168,12 @@ writes the package locally. The package holds no host paths, keys, session logs 
 built binary, which holds paths of your machine such as your home directory. `verify` checks the model files by
 SHA-256, builds the engine from source and runs the same correctness checks and paired timing on your machine, so a
 shared result never has to be taken on trust. Read the source before you run an engine someone else wrote.
+
+The post is also a submission. EngineSmith's maintainers read it, and an engine they approve is forked into the
+[EngineSmith organization](https://github.com/EngineSmith), where GitHub keeps the link to its author's repository and
+the license stays in the author's name. Reproducing it with `verify` on the same hardware is optional; the maintainers
+say in the post whether they did. Maintainers publish their own approved engines there directly with
+`--owner EngineSmith`.
 
 ## Documentation
 

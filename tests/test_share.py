@@ -110,7 +110,18 @@ def test_share_publishes_a_repository_and_a_post(finished_run, tmp_path, fake_gh
     assert 'enginesmith verify https://github.com/alice/enginesmith-test-task-round001' in body
     assert str(tmp_path) not in body
     license = (tmp_path / 'out' / 'test-task-round001' / 'LICENSE').read_text()
-    assert re.search(r'Copyright \(c\) \d{4} alice\n', license)   # the account it is published under
+    assert re.search(r'Copyright \(c\) \d{4} alice\n', license)   # the sharer's login
+
+
+def test_share_can_publish_to_an_organization_in_the_sharers_name(finished_run, tmp_path, fake_gh):
+    result = share(finished_run, out=tmp_path / 'out', post=True, owner='EngineSmith')
+    assert result['posted']['repository'] == 'https://github.com/EngineSmith/enginesmith-test-task-round001'
+    calls = [json.loads(line) for line in fake_gh.read_text().splitlines()]
+    assert calls[2][:3] == ['repo', 'create', 'EngineSmith/enginesmith-test-task-round001']
+    license = (tmp_path / 'out' / 'test-task-round001' / 'LICENSE').read_text()
+    assert re.search(r'Copyright \(c\) \d{4} alice\n', license)   # the sharer, not the organization
+    with pytest.raises(ValueError, match='owner must be'):
+        share(finished_run, out=tmp_path / 'out', post=True, owner='../evil')
 
 
 def test_share_creates_nothing_when_it_cannot_post(finished_run, tmp_path, fake_gh, monkeypatch):
