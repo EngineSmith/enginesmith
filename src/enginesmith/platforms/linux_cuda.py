@@ -172,7 +172,7 @@ def memory_critical() -> bool:
     return not gpus or any(g['vram_used'] > g['vram_total'] * .98 for g in gpus)
 
 
-def engine_environment(engine_cores: int | None = None) -> dict:
+def engine_environment(engine_cores: int | None = None, reference_on_device: bool = True) -> dict:
     gpus = visible_gpus()
     if not gpus or engine_cores is not None and engine_cores > len(gpus):
         raise ValueError('CUDA selection has fewer GPUs than the declared tensor-parallel degree')
