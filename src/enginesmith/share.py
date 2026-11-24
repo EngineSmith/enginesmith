@@ -77,6 +77,8 @@ def describe(run, label: str) -> dict:
     if (s.get('final') or {}).get('round') == label:
         path = run.dir / 'final' / 'evaluation' / 'result.json'
         final_result = json.loads(path.read_text()) if path.is_file() else None
+        if final_result and final_result.get('complete') is False:
+            final_result = None  # it stopped on an error before judging anything: no result to show
     # The run's own task accuracy, or a later `enginesmith quality RUN --round` of this round.
     quality, natural = None, None
     for path in (run.dir / 'quality' / 'summary.json', run.dir / f'quality-round-{label}' / 'summary.json'):
