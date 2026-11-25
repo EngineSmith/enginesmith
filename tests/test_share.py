@@ -172,8 +172,69 @@ def test_share_into_a_collection_keeps_several_engines_in_one_repository(finishe
     readme = (clone / 'README.md').read_text()
     assert readme.startswith('# engines\n') and '| [other-task-round004](other-task-round004/) |' in readme
     assert '| [test-task-round001](test-task-round001/) |' in readme
-    with pytest.raises(ValueError, match='collection must be'):
-        share(finished_run, out=tmp_path / 'out', post=True, collection='a/b')
+    for name in ('a/b', '.', '..', ''):
+        with pytest.raises(ValueError, match='collection must be'):
+            share(finished_run, out=tmp_path / 'out', post=True, collection=name)
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_collection_cleanup_stays_inside_its_temporary_directory(tmp_path, monkeypatch, fails):
+    sentinel = tmp_path / 'unrelated.txt'
+    sentinel.write_text('keep')
+    monkeypatch.setattr(share_module.tempfile, 'tempdir', str(tmp_path))
+    remove = shutil.rmtree
+
+    def guarded_remove(path, *args, **kwargs):
+        # Keep this regression test safe even against the original deletion bug.
+        assert Path(path).parent == tmp_path
+        return remove(path, *args, **kwargs)
+
+    def fill(package, info, slug, private, clone):
+        assert clone.parent.parent == tmp_path
+        clone.mkdir()
+        if fails:
+            raise share_module.PostError('publish failed')
+        return 'published'
+
+    monkeypatch.setattr(share_module.shutil, 'rmtree', guarded_remove)
+    monkeypatch.setattr(share_module, '_fill', fill)
+    if fails:
+        with pytest.raises(share_module.PostError, match='publish failed'):
+            share_module._publish_into(tmp_path, {}, 'alice/.', False)
+    else:
+        assert share_module._publish_into(tmp_path, {}, 'alice/.', False) == 'published'
+    assert sentinel.read_text() == 'keep'
+    assert list(tmp_path.iterdir()) == [sentinel]
+
+
+def test_private_share_refuses_an_existing_public_collection(finished_run, tmp_path, fake_gh, remotes, monkeypatch):
+    share(finished_run, out=tmp_path / 'out', post=True, collection='engines')
+    bare = remotes / 'alice' / 'engines.git'
+    before = subprocess.check_output(['git', 'rev-parse', 'main'], cwd=bare)
+    fake_gh.write_text('')
+
+    def no_git(*args, **kwargs):
+        pytest.fail('must reject the public collection before cloning or pushing')
+
+    monkeypatch.setattr(share_module, '_git_gh', no_git)
+    result = share(finished_run, out=tmp_path / 'out', post=True, private=True, collection='engines')
+    assert 'refusing to publish with --private' in result['post_error'] and 'posted' not in result
+    assert Path(result['package']).is_dir()
+    assert subprocess.check_output(['git', 'rev-parse', 'main'], cwd=bare) == before
+    calls = [json.loads(line) for line in fake_gh.read_text().splitlines()]
+    assert [call[:2] for call in calls] == [['api', 'user'], ['api', 'graphql'], ['repo', 'view'], ['repo', 'view']]
+
+
+def test_private_share_can_create_and_update_a_private_collection(finished_run, tmp_path, fake_gh, remotes):
+    first = share(finished_run, out=tmp_path / 'out', post=True, private=True, collection='private-engines')
+    assert 'posted' in first
+    calls = [json.loads(line) for line in fake_gh.read_text().splitlines()]
+    assert '--private' in next(call for call in calls if call[:2] == ['repo', 'create'])
+    second = share(finished_run, out=tmp_path / 'out', post=True, private=True, collection='private-engines',
+                   license='Apache-2.0')
+    assert 'posted' in second
+    clone = _files(remotes / 'alice' / 'private-engines.git', tmp_path)
+    assert 'Apache License' in (clone / 'test-task-round001' / 'LICENSE').read_text()
 
 
 def test_verify_checks_an_engine_in_a_collection(finished_run, tmp_path, model_dir, fake_gh, remotes, monkeypatch):

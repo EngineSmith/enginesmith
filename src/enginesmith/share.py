@@ -387,18 +387,21 @@ def collection_readme(slug: str, clone: Path) -> str:
 def _publish_into(package: Path, info: dict, slug: str, private: bool) -> str:
     """The package becomes the directory <name>/ of the repository slug, which is created on first use; an engine of
     the same name is replaced. The repository's README lists every engine in it."""
-    clone = Path(tempfile.mkdtemp(prefix='enginesmith-share-')) / slug.split('/')[1]
     try:
-        return _fill(package, info, slug, private, clone)
+        with tempfile.TemporaryDirectory(prefix='enginesmith-share-') as directory:
+            return _fill(package, info, slug, private, Path(directory) / 'repository')
     except engine_repo.SnapshotError as exc:   # a git step (clone, commit, push) failed
         raise PostError(str(exc)) from None
-    finally:
-        shutil.rmtree(clone.parent, ignore_errors=True)
 
 
 def _fill(package: Path, info: dict, slug: str, private: bool, clone: Path) -> str:
     """_publish_into's work, in a clone at clone (a new directory)."""
     if _exists(slug):
+        if private:
+            visibility = json.loads(_gh('repo', 'view', slug, '--json', 'isPrivate'))
+            if visibility.get('isPrivate') is not True:
+                raise PostError(f'{slug} is not private; refusing to publish with --private. '
+                                'Choose a private collection or a new repository name.')
         clone.parent.mkdir(parents=True, exist_ok=True)
         _git_gh('clone', '-q', _remote(slug), str(clone), cwd=clone.parent)
     else:
@@ -436,7 +439,8 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         raise ValueError(f'license must be one of {", ".join(LICENSES)}')
     if owner is not None and not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', owner):
         raise ValueError(f'owner must be a GitHub account or organization name, not {owner!r}')
-    if collection is not None and not re.fullmatch(r'[A-Za-z0-9._-]{1,100}', collection):
+    if collection is not None and (collection in {'.', '..'} or
+                                   not re.fullmatch(r'[A-Za-z0-9._-]{1,100}', collection)):
         raise ValueError(f'collection must be a repository name, not {collection!r}')
     info['engine'].update(binary=binary, license=license)
     root = Path(out) if out else run.dir / 'share'

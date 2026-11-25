@@ -197,6 +197,7 @@ default it is published with the GitHub CLI and the user's login: it becomes a r
 the repository; the category is looked up first, so nothing is created when the post cannot be made. With
 `--collection NAME` the package becomes the directory `<name>/` of the repository `NAME` instead, created on first use;
 sharing an engine of the same name again replaces its directory, and the repository's README lists every engine in it.
+With `--private`, an existing collection must already be private; otherwise publishing stops before any clone or push.
 `--no-post` only writes it. `enginesmith verify PACKAGE --model DIR` takes a package directory, its zip, its repository's URL or
 its directory's URL in a collection (`https://github.com/OWNER/REPO/tree/BRANCH/NAME`),
 checks the model files against the package, builds the engine from the package's source (`--binary` runs the shared

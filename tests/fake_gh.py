@@ -23,11 +23,18 @@ elif args[:2] == ['api', 'graphql']:
     nodes = [] if os.environ.get('FAKE_GH_NO_CATEGORY') else [{'id': 'C1', 'slug': 'engines'}]
     print(json.dumps({'data': {'repository': {'id': 'R1', 'discussionCategories': {'nodes': nodes}}}}))
 elif args[:2] == ['repo', 'view']:
-    sys.exit(0 if (Path(os.environ['FAKE_GH_REMOTES']) / f'{args[2]}.git').is_dir() else 'not found')
+    bare = Path(os.environ['FAKE_GH_REMOTES']) / f'{args[2]}.git'
+    if not bare.is_dir():
+        sys.exit('not found')
+    private = subprocess.run(['git', 'config', '--get', 'enginesmith.private'], cwd=bare,
+                             capture_output=True, text=True).stdout.strip() == 'true'
+    print(json.dumps({'name': bare.stem, 'isPrivate': private}))
 elif args[:2] == ['repo', 'create'] and '--source' not in args:
     bare = Path(os.environ['FAKE_GH_REMOTES']) / f'{args[2]}.git'
     bare.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(bare)], check=True)
+    subprocess.run(['git', 'config', 'enginesmith.private', 'true' if '--private' in args else 'false'],
+                   cwd=bare, check=True)
     print(f'https://github.com/{args[2]}')
 elif args[:2] == ['repo', 'create']:
     source = Path(args[args.index('--source') + 1])
