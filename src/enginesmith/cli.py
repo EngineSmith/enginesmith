@@ -112,6 +112,9 @@ def main(argv=None) -> int:
     p.add_argument('--owner', help='the GitHub organization the repository goes to (default: your own account); '
                    "EngineSmith's maintainers use EngineSmith for an engine they approved. The license stays in your "
                    'name')
+    p.add_argument('--collection', metavar='REPOSITORY', help='publish into the directory <engine>/ of this '
+                   'repository, created on first use, instead of a repository for this engine alone; one '
+                   'repository then holds all your engines, and its README lists them')
     p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local reference')
     p.add_argument('package', help="a package directory, its zip, or its repository's URL")
     p.add_argument('--model', type=Path, required=True, help='the model directory (the same files as the package\'s)')
@@ -238,7 +241,7 @@ def main(argv=None) -> int:
             from enginesmith.run import Run
             from enginesmith.share import share
             emit(share(Run(args.run), args.round, args.out, binary=args.binary, post=not args.no_post,
-                       private=args.private, license=args.license, owner=args.owner))
+                       private=args.private, license=args.license, owner=args.owner, collection=args.collection))
         elif args.command == 'verify':
             from enginesmith.share import verify
             lengths = [int(n) for n in args.lengths.split(',')] if args.lengths else None

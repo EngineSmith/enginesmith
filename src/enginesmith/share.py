@@ -318,16 +318,19 @@ def _engines_category() -> tuple[str, str]:
                     f'"{DISCUSSIONS["category"]}" that this account can post in')
 
 
-def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
-    """The package becomes a GitHub repository (the sharer's account or an organization), and a post in the Engines
-    category links it."""
+def _publish(package: Path, info: dict, repository: str, private: bool, collection: str | None = None) -> dict:
+    """The package becomes a GitHub repository (the sharer's account or an organization), or a directory of the
+    repository collection, and a post in the Engines category links it."""
     target, category = _engines_category()  # first, so that nothing is created when the post cannot be made
-    engine_repo.git('init', '-q', '-b', 'main', cwd=package)
-    engine_repo.git('add', '-A', cwd=package)
-    engine_repo.git('commit', '-q', '-m', f'{info["name"]}, an engine built with EngineSmith', cwd=package)
-    _gh('repo', 'create', repository.removeprefix('https://github.com/'), '--private' if private else '--public',
-        '--description', f'A specialized inference engine for {info["model"]["source"] or info["model"]["name"]}, '
-        'built with EngineSmith', '--source', str(package), '--remote', 'origin', '--push')
+    if collection:
+        _publish_into(package, info, collection, private)
+    else:
+        engine_repo.git('init', '-q', '-b', 'main', cwd=package)
+        engine_repo.git('add', '-A', cwd=package)
+        engine_repo.git('commit', '-q', '-m', f'{info["name"]}, an engine built with EngineSmith', cwd=package)
+        _gh('repo', 'create', repository.removeprefix('https://github.com/'), '--private' if private else '--public',
+            '--description', f'A specialized inference engine for {info["model"]["source"] or info["model"]["name"]}, '
+            'built with EngineSmith', '--source', str(package), '--remote', 'origin', '--push')
     machine = info['machine']['chip'] or info['machine']['accelerator'] or 'an unknown machine'
     result = info['final'] or info['search']['evaluation'] or {}
     against = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
@@ -343,13 +346,90 @@ def _publish(package: Path, info: dict, repository: str, private: bool) -> dict:
     return {'repository': repository, 'discussion': created['data']['createDiscussion']['discussion']['url']}
 
 
+def _remote(slug: str) -> str:
+    return f'https://github.com/{slug}.git'
+
+
+def _git_gh(*args, cwd: Path) -> str:
+    """git with gh as its credential helper: the user's own login, as for every other call share makes."""
+    return engine_repo.git('-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', *args,
+                           cwd=cwd)
+
+
+def _exists(slug: str) -> bool:
+    try:
+        _gh('repo', 'view', slug, '--json', 'name')
+        return True
+    except PostError:
+        return False
+
+
+def collection_readme(slug: str, clone: Path) -> str:
+    """The README of a repository that collects several engines, one directory each: a table of them."""
+    rows = []
+    for path in sorted(clone.glob('*/enginesmith.json')):
+        info = json.loads(path.read_text())
+        result = info.get('final') or info['search']['evaluation'] or {}
+        against = info['harness']['reference'] if info['harness']['reference'] != 'custom' else 'the reference'
+        model = info['model']['source'] or info['model']['name']
+        machine = info['machine'].get('chip') or info['machine'].get('accelerator') or '-'
+        kind = 'held-out final' if info.get('final') else 'search evaluation'
+        rows.append(f'| [{info["name"]}]({path.parent.name}/) | {model} | {machine} | '
+                    f'{_x(result.get("score"))} {against} ({kind}) |')
+    return '\n'.join([f'# {slug.split("/")[1]}', '',
+                      'Specialized inference engines built with [EngineSmith](https://github.com/EngineSmith/enginesmith), '
+                      'one per directory. Each directory is a whole package: its README has the results and how to '
+                      'check them, `source/` the engine, `enginesmith.json` every setting and result, and `LICENSE` '
+                      'its license.', '',
+                      '| engine | model | machine | score |', '|---|---|---|---|', *rows, '']) + '\n'
+
+
+def _publish_into(package: Path, info: dict, slug: str, private: bool) -> str:
+    """The package becomes the directory <name>/ of the repository slug, which is created on first use; an engine of
+    the same name is replaced. The repository's README lists every engine in it."""
+    try:
+        with tempfile.TemporaryDirectory(prefix='enginesmith-share-') as directory:
+            return _fill(package, info, slug, private, Path(directory) / 'repository')
+    except engine_repo.SnapshotError as exc:   # a git step (clone, commit, push) failed
+        raise PostError(str(exc)) from None
+
+
+def _fill(package: Path, info: dict, slug: str, private: bool, clone: Path) -> str:
+    """_publish_into's work, in a clone at clone (a new directory)."""
+    if _exists(slug):
+        if private:
+            visibility = json.loads(_gh('repo', 'view', slug, '--json', 'isPrivate'))
+            if visibility.get('isPrivate') is not True:
+                raise PostError(f'{slug} is not private; refusing to publish with --private. '
+                                'Choose a private collection or a new repository name.')
+        clone.parent.mkdir(parents=True, exist_ok=True)
+        _git_gh('clone', '-q', _remote(slug), str(clone), cwd=clone.parent)
+    else:
+        _gh('repo', 'create', slug, '--private' if private else '--public', '--description',
+            'Specialized inference engines built with EngineSmith')
+        clone.mkdir(parents=True)
+        engine_repo.git('init', '-q', '-b', 'main', cwd=clone)
+        engine_repo.git('remote', 'add', 'origin', _remote(slug), cwd=clone)
+    target = clone / info['name']
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(package, target, ignore=shutil.ignore_patterns('.git'))
+    (clone / 'README.md').write_text(collection_readme(slug, clone))
+    engine_repo.git('add', '-A', cwd=clone)
+    engine_repo.git('commit', '-q', '-m', f'{info["name"]}, an engine built with EngineSmith', cwd=clone)
+    _git_gh('push', '-q', 'origin', 'HEAD:main', cwd=clone)
+    return f'https://github.com/{slug}/tree/main/{info["name"]}'
+
+
 def share(run, label: str | None = None, out: Path | None = None, binary: bool = False, post: bool = False,
-          private: bool = False, license: str = 'MIT', owner: str | None = None) -> dict:
+          private: bool = False, license: str = 'MIT', owner: str | None = None,
+          collection: str | None = None) -> dict:
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
     user's GitHub account, or of owner (an organization the user may create repositories in; EngineSmith's maintainers
     use EngineSmith for an engine they approved), public unless private, and a post in EngineSmith's Discussions
     (category Engines) shows its results and links it; this uses the GitHub CLI and the user's login. The license is
-    in the user's name either way."""
+    in the user's name either way. With collection (a repository name), the package goes to the directory <name>/ of
+    that repository instead, so that one repository holds all of a user's engines."""
     label = label or run.state['incumbent']
     if not label or not (run.round_dir(label) / 'engine').is_file():
         raise ValueError('nothing to share: the run has no built engine for that round')
@@ -359,6 +439,9 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         raise ValueError(f'license must be one of {", ".join(LICENSES)}')
     if owner is not None and not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', owner):
         raise ValueError(f'owner must be a GitHub account or organization name, not {owner!r}')
+    if collection is not None and (collection in {'.', '..'} or
+                                   not re.fullmatch(r'[A-Za-z0-9._-]{1,100}', collection)):
+        raise ValueError(f'collection must be a repository name, not {collection!r}')
     info['engine'].update(binary=binary, license=license)
     root = Path(out) if out else run.dir / 'share'
     package = root / info['name']
@@ -375,7 +458,11 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     if post:
         try:
             login = _gh('api', 'user', '--jq', '.login').strip()
-            repository = f'https://github.com/{owner or login}/{repository_name(info)}'
+            if collection:
+                collection = f'{owner or login}/{collection}'
+                repository = f'https://github.com/{collection}/tree/main/{info["name"]}'
+            else:
+                repository = f'https://github.com/{owner or login}/{repository_name(info)}'
         except PostError as exc:
             error = exc
     if text := _license_text(license, _holder(login)):
@@ -389,7 +476,7 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
               'fits_a_discussions_post': size <= ATTACHMENT_LIMIT}
     if repository:
         try:
-            result['posted'] = _publish(package, info, repository, private)
+            result['posted'] = _publish(package, info, repository, private, collection)
         except PostError as exc:
             error = exc
     if error:
@@ -418,16 +505,25 @@ def _unpack(package: Path, work: Path) -> Path:
 def verify(package: Path | str, model: Path, *, out: Path | None = None, lengths=None, rounds: int | None = None,
            use_binary: bool = False, reference=None, log=print) -> dict:
     """Build a shared engine and evaluate it against the local reference; returns and writes the result. The package
-    is a directory, its zip, or the URL of the repository it was published to."""
+    is a directory, its zip, or the URL of the repository it was published to (or of its directory in a repository
+    that collects several engines)."""
     model, stamp = Path(model).resolve(), time.strftime('%Y%m%d-%H%M%S')
     remote = str(package).startswith(('https://', 'http://', 'file://'))
     if remote:
-        name = str(package).rstrip('/').removesuffix('.git').rsplit('/', 1)[-1]
+        # A repository, or one engine's directory of a repository that collects several (.../tree/BRANCH/NAME).
+        url, branch, directory = str(package).rstrip('/'), None, None
+        if found := re.fullmatch(r'(https://github\.com/[^/]+/[^/]+)/tree/([^/]+)/([^/]+)', url):
+            url, branch, directory = found.groups()
+        name = directory or url.removesuffix('.git').rsplit('/', 1)[-1]
         work = Path(out) if out else Path.cwd() / f'{name}.verify-{stamp}'
         work.mkdir(parents=True, exist_ok=True)
-        log(f'cloning {package} ...')
-        subprocess.run(['git', 'clone', '-q', '--depth', '1', str(package), str(work / name)], check=True)
-        root = work / name
+        log(f'cloning {url} ...')
+        clone = work / (url.removesuffix('.git').rsplit('/', 1)[-1] if directory else name)
+        subprocess.run(['git', 'clone', '-q', '--depth', '1', *(['--branch', branch] if branch else []), url,
+                        str(clone)], check=True)
+        root = clone / directory if directory else clone
+        if not (root / 'enginesmith.json').is_file():
+            raise ValueError(f'{package} holds no engine package (no enginesmith.json)')
     else:
         package = Path(package).resolve()
         work = Path(out) if out else package.parent / f'{package.name.removesuffix(".zip")}.verify-{stamp}'
