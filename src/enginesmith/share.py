@@ -401,8 +401,9 @@ def collection_readme(slug: str, clone: Path) -> str:
         model = info['model']['source'] or info['model']['name']
         machine = info['machine'].get('chip') or info['machine'].get('accelerator') or '-'
         kind = 'held-out final' if info.get('final') else 'search evaluation'
-        rows.append(f'| [{info["name"]}]({path.parent.name}/) | {model} | {machine} | '
-                    f'{_x(result.get("score"))} {against} ({kind}) |')
+        score = (f'{_f(result.get("score"))} of the hardware bound' if info['harness'].get('correctness_only') else
+                 f'{_x(result.get("score"))} {against}')
+        rows.append(f'| [{info["name"]}]({path.parent.name}/) | {model} | {machine} | {score} ({kind}) |')
     return '\n'.join([f'# {slug.split("/")[1]}', '',
                       'Specialized inference engines built with [EngineSmith](https://github.com/EngineSmith/enginesmith), '
                       'one per directory. Each directory is a whole package: its README has the results and how to '

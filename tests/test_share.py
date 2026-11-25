@@ -180,6 +180,21 @@ def test_share_into_a_collection_keeps_several_engines_in_one_repository(finishe
             share(finished_run, out=tmp_path / 'out', post=True, collection=name)
 
 
+def test_a_collections_index_gives_a_correctness_only_engine_its_fraction_of_the_bound(finished_run, tmp_path):
+    share(finished_run, out=tmp_path / 'out')
+    info = json.loads((tmp_path / 'out' / 'test-task-round001' / 'enginesmith.json').read_text())
+    clone = tmp_path / 'collection'
+    for name, only in (('timed', False), ('bounded', True)):
+        (clone / name).mkdir(parents=True)
+        harness = {**info['harness'], 'correctness_only': only}
+        final = {**info['final'], 'score': 0.25}
+        (clone / name / 'enginesmith.json').write_text(json.dumps({**info, 'name': name, 'harness': harness,
+                                                                   'machine': {'accelerator': 'gpu'}, 'final': final}))
+    readme = share_module.collection_readme('alice/engines', clone)
+    assert '| [bounded](bounded/) | model | gpu | 0.250 of the hardware bound (held-out final) |' in readme
+    assert '| [timed](timed/) | model | gpu | 0.25x the reference (held-out final) |' in readme
+
+
 @pytest.mark.parametrize('fails', [False, True])
 def test_collection_cleanup_stays_inside_its_temporary_directory(tmp_path, monkeypatch, fails):
     sentinel = tmp_path / 'unrelated.txt'
