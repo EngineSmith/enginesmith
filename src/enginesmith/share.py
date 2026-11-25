@@ -279,8 +279,7 @@ def _license_text(license: str, holder: str) -> str | None:
 
 
 def _holder(login: str | None) -> str:
-    """Who shares the engine: the sharer's GitHub login when it is published (also when the repository goes to an
-    organization), else git's user.name."""
+    """Who shares the engine: the sharer's GitHub login when published, else git's user.name."""
     if login:
         return login
     name = subprocess.run(['git', 'config', 'user.name'], capture_output=True, text=True).stdout.strip()
@@ -319,8 +318,7 @@ def _engines_category() -> tuple[str, str]:
 
 
 def _publish(package: Path, info: dict, repository: str, private: bool, collection: str | None = None) -> dict:
-    """The package becomes a GitHub repository (the sharer's account or an organization), or a directory of the
-    repository collection, and a post in the Engines category links it."""
+    """The package becomes the sharer's GitHub repository, or a directory in their collection; a post links it."""
     target, category = _engines_category()  # first, so that nothing is created when the post cannot be made
     if collection:
         _publish_into(package, info, collection, private)
@@ -422,14 +420,13 @@ def _fill(package: Path, info: dict, slug: str, private: bool, clone: Path) -> s
 
 
 def share(run, label: str | None = None, out: Path | None = None, binary: bool = False, post: bool = False,
-          private: bool = False, license: str = 'MIT', owner: str | None = None,
+          private: bool = False, license: str = 'MIT',
           collection: str | None = None) -> dict:
     """Write the package directory and its zip. With post, also publish it: the package becomes a repository of the
-    user's GitHub account, or of owner (an organization the user may create repositories in; EngineSmith's maintainers
-    use EngineSmith for an engine they approved), public unless private, and a post in EngineSmith's Discussions
-    (category Engines) shows its results and links it; this uses the GitHub CLI and the user's login. The license is
-    in the user's name either way. With collection (a repository name), the package goes to the directory <name>/ of
-    that repository instead, so that one repository holds all of a user's engines."""
+    user's GitHub account (public unless private), and a post in EngineSmith's Discussions (category Engines)
+    shows its results and links it; this uses the GitHub CLI and the user's login. The license is in the user's name.
+    With collection (a repository name), the package goes to the directory <name>/ of that repository instead,
+    so that one repository holds all of a user's engines."""
     label = label or run.state['incumbent']
     if not label or not (run.round_dir(label) / 'engine').is_file():
         raise ValueError('nothing to share: the run has no built engine for that round')
@@ -437,8 +434,6 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
     info = describe(run, label)
     if license not in LICENSES:
         raise ValueError(f'license must be one of {", ".join(LICENSES)}')
-    if owner is not None and not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})', owner):
-        raise ValueError(f'owner must be a GitHub account or organization name, not {owner!r}')
     if collection is not None and (collection in {'.', '..'} or
                                    not re.fullmatch(r'[A-Za-z0-9._-]{1,100}', collection)):
         raise ValueError(f'collection must be a repository name, not {collection!r}')
@@ -459,10 +454,10 @@ def share(run, label: str | None = None, out: Path | None = None, binary: bool =
         try:
             login = _gh('api', 'user', '--jq', '.login').strip()
             if collection:
-                collection = f'{owner or login}/{collection}'
+                collection = f'{login}/{collection}'
                 repository = f'https://github.com/{collection}/tree/main/{info["name"]}'
             else:
-                repository = f'https://github.com/{owner or login}/{repository_name(info)}'
+                repository = f'https://github.com/{login}/{repository_name(info)}'
         except PostError as exc:
             error = exc
     if text := _license_text(license, _holder(login)):
