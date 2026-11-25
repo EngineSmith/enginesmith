@@ -163,7 +163,8 @@ the speeds in tokens per second, how the search went and which agent, model and 
 repository of your GitHub account, and posts the README with a link in this repository's Discussions (category
 Engines). The engine is published under the MIT license in your name (`--license Apache-2.0` or `none` to change it).
 It uses the GitHub CLI and your login (`gh auth login`); `--private` makes the repository private, `--no-post` only
-writes the package locally. The package holds no host paths, keys, session logs or model weights; `--binary` adds the
+writes the package locally. `--collection NAME` puts each engine in a directory of one repository `NAME` instead
+(created on first use, its README lists them), so one repository holds all the engines you share. The package holds no host paths, keys, session logs or model weights; `--binary` adds the
 built binary, which holds paths of your machine such as your home directory. `verify` checks the model files by
 SHA-256, builds the engine from source and runs the same correctness checks and paired timing on your machine, so a
 shared result never has to be taken on trust. Read the source before you run an engine someone else wrote.

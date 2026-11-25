@@ -349,6 +349,7 @@ their account). Then offer the choices:
 |---|---|---|
 | publish (recommended) | `uv run enginesmith share RUN_DIR` | the package becomes a public repository of the user's GitHub account, and a post in EngineSmith's Discussions (category Engines) shows its README and links it |
 | publish, private repository | `uv run enginesmith share RUN_DIR --private` | the same, with a repository only the user can open |
+| publish into one repository for all their engines | `uv run enginesmith share RUN_DIR --collection NAME` | the package becomes the directory `<name>/` of the repository `NAME` (created on first use, its README lists every engine), and the same post links that directory; recommend it when the user shares more than one engine |
 | save it here | `uv run enginesmith share RUN_DIR --no-post` | only `RUN_DIR/share/<name>/` and its zip |
 | not now | nothing | it can be shared later |
 
@@ -361,7 +362,8 @@ GitHub CLI with the user's own login: if `gh` is missing, offer to install it (h
 the user logs in themselves with `gh auth login`. Report the repository's and the post's URLs. When `share` returns
 `post_error`, the package is still written: say why, and what `next` says.
 
-To check someone else's engine: `uv run enginesmith verify REPOSITORY_URL --model models/NAME` (or a package's zip).
+To check someone else's engine: `uv run enginesmith verify REPOSITORY_URL --model models/NAME` (or a package's zip, or
+an engine's directory in a collection, `https://github.com/OWNER/REPO/tree/main/NAME`).
 The model files must match the package's (download the repository and revision its README names); then it builds
 the engine from source and runs the correctness checks and the paired timing against the local mlx-lm. Tell the user
 to read the source first: it is native code that another user's coding agent wrote.
