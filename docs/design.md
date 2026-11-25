@@ -196,8 +196,12 @@ package's `LICENSE` is MIT under the sharer's GitHub account (or git user name) 
 `THIRD_PARTY.md`. By
 default it is published with the GitHub CLI and the user's login: it becomes a repository of the user's account
 (`--private` or public) and a post in EngineSmith's Discussions, category Engines, which shows the README and links
-the repository; the category is looked up first, so nothing is created when the post cannot be made. `--no-post`
-only writes it. `enginesmith verify PACKAGE --model DIR` takes a package directory, its zip or its repository's URL,
+the repository; the category is looked up first, so nothing is created when the post cannot be made. With
+`--collection NAME` the package becomes the directory `<name>/` of the repository `NAME` instead, created on first use;
+sharing an engine of the same name again replaces its directory, and the repository's README lists every engine in it.
+With `--private`, an existing collection must already be private; otherwise publishing stops before any clone or push.
+`--no-post` only writes it. `enginesmith verify PACKAGE --model DIR` takes a package directory, its zip, its repository's URL or
+its directory's URL in a collection (`https://github.com/OWNER/REPO/tree/BRANCH/NAME`),
 checks the model files against the package, builds the engine from the package's source (`--binary` runs the shared
 binary instead), and runs the formal evaluation's procedure against the local mlx-lm with the package's settings on
 fresh prompts.

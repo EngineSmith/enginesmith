@@ -164,7 +164,8 @@ the speeds in tokens per second, how the search went and which agent, model and 
 repository of your GitHub account, and posts the README with a link in this repository's Discussions (category
 Engines). The engine is published under the MIT license in your name (`--license Apache-2.0` or `none` to change it).
 It uses the GitHub CLI and your login (`gh auth login`); `--private` makes the repository private, `--no-post` only
-writes the package locally. The package holds no host paths, keys, session logs or model weights; `--binary` adds the
+writes the package locally. `--collection NAME` puts each engine in a directory of one repository `NAME` instead
+(created on first use, its README lists them), so one repository holds all the engines you share. The package holds no host paths, keys, session logs or model weights; `--binary` adds the
 built binary, which holds paths of your machine such as your home directory. `verify` checks the model files by
 SHA-256, builds the engine from source and runs the same correctness checks and paired timing on your machine, so a
 shared result never has to be taken on trust. Read the source before you run an engine someone else wrote.
@@ -172,8 +173,7 @@ shared result never has to be taken on trust. Read the source before you run an 
 The post is also a submission. EngineSmith's maintainers read it, and an engine they approve is forked into the
 [EngineSmith organization](https://github.com/EngineSmith), where GitHub keeps the link to its author's repository and
 the license stays in the author's name. Reproducing it with `verify` on the same hardware is optional; the maintainers
-say in the post whether they did. Maintainers publish their own approved engines there directly with
-`--owner EngineSmith`.
+say in the post whether they did. Maintainers share their own engines the same way and may approve them themselves.
 
 ## Documentation
 
@@ -197,3 +197,9 @@ uv run enginesmith --help
 ## License
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## Natural-text development diagnostics
+
+For speculative-decoding development, `dev-eval --text-dataset` accepts an explicitly prepared local natural-text
+corpus and reports separate per-length Prefill/Decode diagnostics. It does not change formal scoring or existing
+runs. See [preparation, sampling and result semantics](docs/natural-text-development.md).

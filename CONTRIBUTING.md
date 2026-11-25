@@ -70,7 +70,8 @@ Sections below: [skill knowledge](#contributing-skill-knowledge), [a coding agen
 [a platform or a reference](#supporting-another-platform), [the core](#changing-the-core). Sharing an engine is
 described in the README ("Share an engine, check someone else's"): the post in the Engines category is the
 submission, and an engine the maintainers approve is forked into the EngineSmith organization, in its author's name.
-A reproduction with `enginesmith verify` is optional.
+A reproduction with `enginesmith verify` is optional. A maintainer's own engine goes the same way, and the maintainer
+may approve it.
 
 ## Map of the code
 

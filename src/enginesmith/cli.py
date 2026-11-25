@@ -109,9 +109,9 @@ def main(argv=None) -> int:
     p.add_argument('--license', choices=('MIT', 'Apache-2.0', 'none'), default='MIT',
                    help="the engine's license, under your name (default: MIT)")
     p.add_argument('--private', action='store_true', help='make the repository private (the post is still made)')
-    p.add_argument('--owner', help='the GitHub organization the repository goes to (default: your own account); '
-                   "EngineSmith's maintainers use EngineSmith for an engine they approved. The license stays in your "
-                   'name')
+    p.add_argument('--collection', metavar='REPOSITORY', help='publish into the directory <engine>/ of this '
+                   'repository, created on first use, instead of a repository for this engine alone; one '
+                   'repository then holds all your engines, and its README lists them')
     p = sub.add_parser('verify', help='build a shared engine from source and evaluate it against the local reference')
     p.add_argument('package', help="a package directory, its zip, or its repository's URL")
     p.add_argument('--model', type=Path, required=True, help='the model directory (the same files as the package\'s)')
@@ -124,6 +124,9 @@ def main(argv=None) -> int:
     p.add_argument('--rounds', type=int, default=1)
     p.add_argument('--no-build', action='store_true')
     p.add_argument('--cooldown', type=float, help='seconds before each engine process (default: the task\'s)')
+    p.add_argument('--text-dataset', type=Path, help='prepared natural-text JSONL; separate diagnostic results only')
+    p.add_argument('--samples-per-length', type=int, help='distinct text documents per length (default: 3)')
+    p.add_argument('--dataset-seed', type=int, help='reproducible natural-text sampling seed (default: 0)')
     p = sub.add_parser('dataset', help='write the public development prompts as JSON lines')
     p.add_argument('--vocab', type=int, required=True)
     p.add_argument('--lengths', default=','.join(map(str, workload.LENGTHS)))
@@ -238,13 +241,20 @@ def main(argv=None) -> int:
             from enginesmith.run import Run
             from enginesmith.share import share
             emit(share(Run(args.run), args.round, args.out, binary=args.binary, post=not args.no_post,
-                       private=args.private, license=args.license, owner=args.owner))
+                       private=args.private, license=args.license, collection=args.collection))
         elif args.command == 'verify':
             from enginesmith.share import verify
             lengths = [int(n) for n in args.lengths.split(',')] if args.lengths else None
             emit(verify(args.package, args.model, out=args.out, lengths=lengths, rounds=args.rounds,
                         use_binary=args.binary, log=lambda m: print(m, file=sys.stderr, flush=True)))
         elif args.command == 'dev-eval':
+            if args.text_dataset is not None:
+                from enginesmith import text_dev_eval
+                return text_dev_eval.run(args.text_dataset, args.lengths, args.rounds, not args.no_build,
+                                         args.cooldown, 3 if args.samples_per_length is None else args.samples_per_length,
+                                         0 if args.dataset_seed is None else args.dataset_seed)
+            if args.samples_per_length is not None or args.dataset_seed is not None:
+                parser.error('--samples-per-length and --dataset-seed require --text-dataset')
             from enginesmith import dev_eval
             return dev_eval.run(args.lengths, args.rounds, not args.no_build, args.cooldown)
         elif args.command == 'dataset':
