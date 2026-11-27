@@ -46,8 +46,8 @@ def load_manifest(path: Path) -> dict:
     _keys(data, ('version', 'services', 'workload'), 'manifest')
     if type(data.get('version')) is not int or data['version'] != 1:
         raise TaskError('service manifest version must be 1')
-    if not isinstance(data.get('services'), list) or not data['services']:
-        raise TaskError('services must be a nonempty array of tables')
+    if not isinstance(data.get('services'), list):
+        raise TaskError('services must be an array of tables (empty for an external endpoint)')
     names = set()
 
     def command(value, label, service=False):

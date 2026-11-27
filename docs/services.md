@@ -37,7 +37,8 @@ the caller must interpret the benchmark's own artifacts.
 
 ## Manifest version 1
 
-There must be at least one `[[services]]` table and one `[workload]`. Unknown fields are rejected before any process
+There must be a `services` array and one `[workload]`. Use `services = []` to supervise only a workload against an
+externally managed endpoint. Unknown fields are rejected before any process
 starts. Services launch in table order; each readiness command must succeed before the next service launches.
 Place dependencies first and their consumers last. Cleanup uses the reverse order.
 
