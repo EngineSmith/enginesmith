@@ -1,0 +1,88 @@
+{
+  "date": "2026-11-21",
+  "scope": "Native runtime example only; no model or inference performance claim",
+  "platform": {
+    "os": "Linux",
+    "arch": "x86_64",
+    "gpu": "NVIDIA B300",
+    "compute_capability": "10.3",
+    "gpu_count_used": 1,
+    "resident_services": "Held memory; idle before and after checks; not an exclusive-device benchmark"
+  },
+  "toolchain": {
+    "nvcc": "13.4.92",
+    "rustc": "1.82.0",
+    "gxx": "13.3.0",
+    "driver": "595.71.05",
+    "compute_sanitizer": "2026.2.0.0",
+    "sanitizer_distribution": "cuda_sanitizer_api13.3.27"
+  },
+  "target": "sm_103",
+  "numerics": {
+    "fast_math": false,
+    "fmad": false
+  },
+  "sources": {
+    "kernel.cu": "706eb104fa8500bdd5791dc61c6540f64366a2a276ac2d58b9d31c35813a7e22",
+    "main.rs": "79cae04584e7a2dfa747530dafb60b12c8f38f5e5474d92f733150d3c811c118",
+    "build.py": "c2a8102f0b861d66be56dc34fe97f1527e2bd1e2e19994d65f268da5993e8721",
+    "validate.py": "b3991e6144dc3e4995f2311cbda28313ac7d78bf0f91f597fbe379e022369d76",
+    "lifecycle.cu": "e62d89f593a4eac7a06c6d2c4c46329cd3f68ff28a697d1b305d588576ec7be6"
+  },
+  "binary_sha256": "b9de6fef3a60dff5bc37ee134048de964599f91a10f671dd28240c7494c2a33d",
+  "lifecycle_binary_sha256": "07560bccf4ca820beb1dcc338cb5c365b8bb66221e23a621620c6c41b664417f",
+  "elf": {
+    "native_cubin": "sm_103",
+    "direct_dependencies": [
+      "libcudart.so.13",
+      "libstdc++.so.6",
+      "libgcc_s.so.1",
+      "libc.so.6",
+      "ld-linux-x86-64.so.2"
+    ]
+  },
+  "checks": {
+    "sample_runs": 9,
+    "repetitions": [
+      1,
+      17,
+      1000
+    ],
+    "exact_outputs_passed": true,
+    "invalid_cli_cases": 3,
+    "no_device_rust_error": true,
+    "lifecycle": {
+      "correct": true,
+      "lifecycle_cycles": 40,
+      "correctness_checks": 240,
+      "injected_setup_failures": 6,
+      "live_resources": 0
+    },
+    "memcheck": [
+      {
+        "binary": "cuda-runtime-check",
+        "exit_code": 0,
+        "errors": 0,
+        "leaked_bytes": 0,
+        "leaked_allocations": 0
+      },
+      {
+        "binary": "cuda-lifecycle-check",
+        "exit_code": 0,
+        "errors": 0,
+        "leaked_bytes": 0,
+        "leaked_allocations": 0
+      }
+    ]
+  },
+  "timing": {
+    "performance_claim": false,
+    "comparison": null,
+    "reason": "Fixed direct-then-graph tiny-kernel diagnostics on a shared GPU; no inference speedup or exclusive-device benchmark."
+  },
+  "limitations": [
+    "Controlled setup return errors do not simulate asynchronous device faults, capture invalidation or real OOM.",
+    "No model weights, generation protocol, quality parity, P/D scheduling or AgentX workload tested.",
+    "This is runtime-foundation evidence; full CUDA skill backend and measured model kernels remain outside this PR."
+  ]
+}
