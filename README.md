@@ -18,6 +18,12 @@ Linux/CUDA [prerequisite support](docs/cuda-prerequisites.md) provides device se
 it requires an externally validated reference command and does not yet include a built-in reference or an engine
 skill backend. Support for other platforms plugs in without changing the core, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+The opt-in [`service-check` diagnostic](docs/services.md) supervises local foreground services around an external
+workload, retaining lifecycle results and logs. It is a foundation for service experiments; it does not yet add
+multi-node execution or service scoring to an EngineSmith search. The optional
+[`agentx-check` diagnostic](docs/agentx.md) invokes a pinned external AgentX client against an existing endpoint
+and checks its exported configuration; it does not add a search score or a coding-quality evaluation.
+
 ## What a specialized engine is
 
 A specialized engine is a native program written for one fixed target: one model checkpoint, one machine, one
