@@ -130,3 +130,18 @@ kernel[2](*[[arr_rank0, arr_rank1, ...] for each tensor argument], rg=ReplicaGro
 - The runtime's device profile (`NEURON_RT_INSPECT_DEVICE_PROFILE=1` / `model`) was not written for async
   multi-rank executions: only the NEFF copies (and, with the system profile on, a system trace) appeared. Profile a
   shard with the same kernel built for W=1 instead (`NOCC=1` in the lab's test).
+
+## Small all-reduces in decode: all-gather and a fixed-order sum (gpt-oss-20b, measured)
+
+For the small per-layer reductions of decode ([120, 24] and [120, 96] fp32 per rank over 4 ranks), `ncc.all_gather`
+of the partials into SBUF followed by a fixed-order local sum ((r0 + r1) + (r2 + r3), the same on every rank) beat
+`ncc.all_reduce`: about 2.5-9 us against 11.3 us (noisy micro-benchmark), and decode 248 -> 239 ms per 64 tokens.
+The result is not bitwise equal to the all-reduce's (its fp32 order differs); check the error against float64 on
+random data (6e-8 relative here) and with dev-eval. `ncc.all_reduce` also accepts SBUF source and destination,
+which removes the HBM hop and a core barrier (278 -> 261 ms); for the larger [120, 96] it was slower than the HBM
+form (20.8 against 18.9 us), so measure each size. Measured and not kept: one all-reduce per expert as soon as its
+partial is ready (collectives in flight stalled the expert weight DMAs: 261 -> 322 ms).
+
+The first collective of an execution pays a start and rank-skew delay (a 2.9 MB all-reduce took 149-174 us first,
+33-41 us later). Fewer executions help: running all 24 one-chunk prefill layers in one NEFF instead of one per
+layer took 256-token prefill from 32.5 to 30.6 ms.

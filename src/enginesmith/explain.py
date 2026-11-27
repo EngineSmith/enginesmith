@@ -12,10 +12,11 @@ import math
 import os
 from pathlib import Path
 
-from enginesmith import agents, references, workload
+from enginesmith import agents, bound, references, workload
 from enginesmith.brief import reference_argv, reference_kind
 from enginesmith.evaluate import EVALUATION_VERSION, MIN_TIMEOUT, TIMEOUT_FACTOR
 from enginesmith.platforms import current
+from enginesmith.report import bound_text
 from enginesmith.task import Task, decode_rule
 
 
@@ -107,10 +108,16 @@ def explain(task: Task) -> str:
                            'reset, a continuation sent as the whole history',
                  'nxdi': f'stock NxD Inference on {cores(task.reference_tp)} (bf16, fused QKV, async mode, '
                          'on-device greedy sampling), driven the way its HuggingFaceGenerationAdapter generates: the whole prompt '
-                         'in one context-encoding call padded to its bucket, then one token-generation call per token'}
+                         'in one context-encoding call padded to its bucket, then one token-generation call per token',
+                 'transformers-cpu': 'stock transformers on the host CPU in bf16, every request through '
+                                     '`model.generate`, judge by teacher forcing with a logits processor'}
     out += [f'- Reference: {described.get(kind, kind)} (`-m {references.KINDS[kind]["module"]}`, '
             f'version {references.version(kind)}).' if kind else
-            f'- Reference: the custom command `{" ".join(task.reference)}`.', '']
+            f'- Reference: the custom command `{" ".join(task.reference)}`.']
+    if task.correctness_only:
+        out += [f'- Correctness only: the reference decides what is correct and is no speed baseline, so no speedup '
+                f'is reported (frameworks tried on this platform: {task.frameworks}).']
+    out += ['']
 
     timed = [c for c in task.cases() if c.timed]
     total_weight = sum(o.case_weight(c.length) * (o.prefill + o.decode) for c in timed)
@@ -136,14 +143,34 @@ def explain(task: Task) -> str:
     if not measured:
         out += ['The reference has not been measured on this machine yet: run `enginesmith prepare` first.', '']
 
-    out += ['## 3. The score', '',
-            'For each timed case c and segment s (prefill, decode): speedup(c, s) = median over the paired rounds of '
-            'reference time / engine time. The score is the weighted geometric mean',
-            '', '    score = exp( sum_c sum_s w_c * w_s * ln speedup(c, s) / sum_c sum_s w_c * w_s )', '',
+    measure = 'fraction' if task.correctness_only else 'speedup'
+    out += ['## 3. The score', '']
+    if task.correctness_only:
+        out += ['For each timed case c and segment s (prefill, decode): fraction(c, s) = median over the paired rounds '
+                'of bound time / engine time, where the bound is the least time this hardware needs for the request '
+                '(below). The score is the weighted geometric mean']
+    else:
+        out += ['For each timed case c and segment s (prefill, decode): speedup(c, s) = median over the paired rounds '
+                'of reference time / engine time. The score is the weighted geometric mean']
+    out += ['', f'    score = exp( sum_c sum_s w_c * w_s * ln {measure}(c, s) / sum_c sum_s w_c * w_s )', '',
             f'with segment weights w_prefill = {o.prefill:g}, w_decode = {o.decode:g} and the case weights above; the '
-            'table\'s "share" columns are each term\'s weight in it. 1.20 means the engine is 20% faster than '
-            f'{reference_kind(task) or "the reference"} on this mix. The prefill and decode means used by the acceptance rules weight the cases by '
-            'their case weights only.', '']
+            'table\'s "share" columns are each term\'s weight in it. '
+            + ('0.50 means the engine takes twice the bound\'s time on this mix. ' if task.correctness_only else
+               f'1.20 means the engine is 20% faster than {reference_kind(task) or "the reference"} on this mix. ')
+            + 'The prefill and decode means used by the acceptance rules weight the cases by their case weights only.',
+            '']
+    limits = bound.bounds(task.model, task.lengths, task.output_tokens, task.reference_tp)
+    out += ['The hardware bound (ESTIMATE, enginesmith.bound): prefill FLOPs / peak compute, decode bytes read per '
+            'token / memory bandwidth, for a dense model from its safetensors headers and config.json; '
+            + (f'platform figures: {limits["peak"]["source"]}.' if limits['peak'] else
+               'this platform has no figures.')
+            + (' The report shows the fraction of it next to each speedup; it is not scored.'
+               if not task.correctness_only else
+               f' Where it is not computed the score uses a nominal {bound.NOMINAL_MS:g} ms per request and per decode '
+               'token: a consistent relative measure, reported as "not computed".'), '',
+            '| prompt tokens | bound |', '|---:|---|']
+    out += [f'| {n:,} | {bound_text(c, task.output_tokens)} |' for n, c in limits['cases'].items()]
+    out += ['']
 
     allowed = g.case_mismatch_percent * task.output_tokens // 100
     out += ['## 4. Correctness gates (every evaluation)', '',
@@ -214,7 +241,7 @@ def explain(task: Task) -> str:
         rules.append(f'the prefill or the decode mean improves by at least {_pct(a.segment_improvement)} while the '
                      f'other mean and the score get worse by at most {_pct(a.max_regression)}')
     if a.case_improvement:
-        rules.append(f'one case\'s prefill or decode speedup improves by at least {_pct(a.case_improvement)} while the '
+        rules.append(f'one case\'s prefill or decode {measure} improves by at least {_pct(a.case_improvement)} while the '
                      f'score gets worse by at most {_pct(a.max_regression)}')
     out += ['## 7. Acceptance: when a candidate replaces the best engine', '',
             '- It must pass every gate of section 4 and complete the evaluation.',

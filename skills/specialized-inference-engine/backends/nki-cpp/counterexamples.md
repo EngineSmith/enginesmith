@@ -25,3 +25,23 @@ On the random-token timed prompts a draft-and-verify decoder looks far better th
 MATH-500 prompts against NxD Inference: Qwen3-0.6B harness 3.01x but real text 2.6x (a token-by-token engine already
 gives 2.5x); Qwen3-14B harness 4.65x -> 5.17x between two rounds while real-text speed fell 1.73x -> 1.64x. A
 speculation change is kept only if real-text generation speed (task accuracy, quality.py) improves.
+
+- **A DMA whose offset comes from SBUF (`scalar_offset` / `vector_offset`) can read the offset before the
+  instruction producing it has written it**, even when the producer is another DMA from a kernel input. On
+  DeepSeek-V4.1-Flash this read wrong expert weights, and caused NRT_EXEC_OOB crashes at random layers. Remove
+  run-time offsets from kernels, or compile one NEFF per offset choice.
+
+- **Sharing SBUF between tensors: use `.view`, not fixed addresses.** Regions declared at explicit SBUF addresses
+  (`nl.ndarray(..., address=...)`) with another tensor at the same address gave deterministic wrong tokens on
+  gpt-oss-20b: the auto-allocator does not avoid explicit addresses, and the compiler keeps internal constants
+  (such as the transpose identity) at the top of SBUF. A `.view` of one region worked, with `instr.depends_on()` to
+  order the DMAs that reuse it.
+- **Stacked tensors past 2^31 elements**: DMA offsets beyond that are out of range, and only fail at run time
+  (NRT_EXEC_OOB from layer 17 of a 24-layer expert stack). Split the stacks.
+- **A position-indexed DMA into a 4-D cache must name the position dimension in `indirect_dim`.** With the index
+  of a 3-D layout, a zero-input test at position 0 passed and the engine failed later with NRT_EXEC_OOB.
+- **Chunk sizes must divide the length**: `CH = 512 if NK % 512 == 0 else 256` silently skipped the last 128 keys
+  for NK = 384 (stale SBUF, NaN rows that changed between runs). Take the largest of 512 / 256 / 128 that divides,
+  and assert it.
+- **A strided DMA of 4-byte elements can be very slow**: a bias row gathered from [n, t] order took about 100 us per
+  expert; a transposed copy made at load time made it one contiguous row.

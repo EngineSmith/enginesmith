@@ -27,16 +27,18 @@ class EngineFailure(Exception):
         self.kind, self.message = kind, message
 
 
-def engine_environment(scratch: Path, extra: dict | None = None, engine_cores: int | None = None) -> dict:
+def engine_environment(scratch: Path, extra: dict | None = None, engine_cores: int | None = None,
+                       reference_on_device: bool = True) -> dict:
     """A small, explicit environment: no inherited variables apart from those given and the platform's own (for
     example the accelerator cores a process may use). engine_cores: this process is the engine, and gets the
-    accelerator cores the reference generates on (its tensor-parallel degree); None: a reference."""
+    accelerator cores the reference generates on (its tensor-parallel degree); None: a reference.
+    reference_on_device: False for a correctness-only reference, which uses no accelerator cores."""
     from enginesmith.platforms import current
     env = {'PATH': CLEAN_PATH, 'HOME': str(scratch), 'TMPDIR': str(scratch), 'LANG': 'C.UTF-8',
            'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1'}
     platform_environment = getattr(current(), 'engine_environment', None)
     if platform_environment:
-        env.update(platform_environment(engine_cores) if engine_cores else platform_environment())
+        env.update(platform_environment(engine_cores, reference_on_device) if engine_cores else platform_environment())
     env.update(extra or {})
     return env
 
@@ -45,13 +47,14 @@ class Engine:
     """One running engine. Use as a context manager; close() stops the whole process group."""
 
     def __init__(self, argv, *, scratch: Path, label: str, registry: Registry | None = None, env: dict | None = None,
-                 engine_cores: int | None = None):
+                 engine_cores: int | None = None, reference_on_device: bool = True):
         scratch.mkdir(parents=True, exist_ok=True)
         self.label, self.registry, self.scratch = label, registry, scratch
         self.stderr_path = scratch / 'stderr.log'
         with open(self.stderr_path, 'ab') as stderr:
             self.process = subprocess.Popen(list(argv), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr,
-                                            cwd=scratch, env=env or engine_environment(scratch, engine_cores=engine_cores),
+                                            cwd=scratch, env=env or engine_environment(scratch, engine_cores=engine_cores,
+                                                                                reference_on_device=reference_on_device),
                                             start_new_session=True, close_fds=True)
         if registry:
             registry.add(self.process.pid)

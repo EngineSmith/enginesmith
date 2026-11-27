@@ -20,6 +20,13 @@ SYSTEM = ('/usr/lib/', '/System/Library/')
 REFUSED = ('libpython', 'Python', 'libmlx', 'mlx', 'MetalPerformanceShaders', 'Accelerate', 'CoreML', 'libtorch',
            'libggml', 'libllama', 'libonnxruntime')
 
+# Apple M5 Max: the streaming read ceiling measured in the skill backend (backends/metal-rust/README.md, "Measured
+# platform numbers": about 586-590 GB/s). Apple publishes no peak matrix throughput for its GPU, so there is no
+# prefill bound.
+M5_MAX = {'bandwidth': 590e9, 'compute': None,
+          'source': 'Apple M5 Max: 590 GB/s measured streaming read (skill backend metal-rust); no published peak '
+                    'compute'}
+
 
 def _run(argv, timeout=20) -> str | None:
     try:
@@ -85,6 +92,12 @@ def memory_critical() -> bool:
     """macOS memory pressure level 4 (critical); 1 is normal and 2 warning."""
     level = _run(['/usr/sbin/sysctl', '-n', 'kern.memorystatus_vm_pressure_level'], timeout=5)
     return bool(level) and level.isdigit() and int(level) >= 4
+
+
+def peak(cores: int = 1) -> dict | None:
+    """The GPU's memory bandwidth (bytes/s) and peak compute (FLOP/s, None when unknown), on the chips with
+    figures."""
+    return M5_MAX if _run(['/usr/sbin/sysctl', '-n', 'machdep.cpu.brand_string']) == 'Apple M5 Max' else None
 
 
 def keep_awake() -> subprocess.Popen | None:

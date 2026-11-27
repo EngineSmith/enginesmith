@@ -69,3 +69,13 @@ QKV 4096 -> 6144 at 1,024 tokens: 136.6 TFLOP/s; gate/up half: 145.6; o_proj: 12
 activations does not fit SBUF (`NCC_IBIR229`). nkilib attention, 32 q / 8 KV heads: 479 us at 1,024, 2,732 us at
 4,096. One core's QKV weights for one layer (196 KB per partition) exceed SBUF, so phases must stream weight slabs
 per token chunk. Estimate (not measured): about 125 ms at 1,024 and 520 ms at 4,096 (the reference: 243 and 606 ms).
+
+## MoE prefill: skip the experts no token uses (gpt-oss-20b, measured)
+
+With real routing, a 256-token chunk selects only about 17 of 32 experts. On the device: u[e] = max over tokens of
+the routing weight > 0, slot = exclusive prefix sum (a strictly triangular matmul), the used ids scattered to an
+HBM list in ascending order and padded with a dummy expert whose weight DMAs fall out of range (skipped) and whose
+routing row is zero. Then one device loop (`nl.dynamic_range`) over pairs of used experts, loading expert 2i+1's
+weights while 2i computes. The same arithmetic in the same expert order: bitwise identical; 256-token prefill
+38.0 -> 33.3 ms. Each device-loop entry and iteration is an all-engine barrier that also waits for outstanding
+DMAs, so a prefetch cannot overlap a loop boundary; keep one loop, not one per expert.

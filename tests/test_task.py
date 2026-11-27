@@ -72,10 +72,32 @@ def test_the_frozen_json_round_trips(tmp_path, model_dir):
     ({'budget': {'tokens': 5}}, 'unknown keys'),
     ({'agent': {'command': ['/usr/bin/env', 'DEEPSEEK_API_KEY=abc', 'pi', '{prompt}']}}, 'credential'),
     ({'agent': {'command': ['pi', '--api-key', 'sk-abcdefghijklmnopqrstu', '{prompt}']}}, 'credential'),
+    ({'reference': {'correctness_only': True}}, 'reference.frameworks'),
+    ({'reference': {'frameworks': 'NxD Inference fails'}}, 'reference.frameworks'),
+    ({'reference': {'correctness_only': True, 'frameworks': ' '}}, 'reference.frameworks'),
+    ({'reference': {'tensor_parallel': 2}}, 'tensor_parallel'),
 ])
 def test_invalid_tasks_are_refused(tmp_path, model_dir, sections, message):
     with pytest.raises(TaskError, match=message):
         load_task(write_task(tmp_path, model_dir, **sections))
+
+
+def test_a_correctness_only_reference_names_the_frameworks_tried(tmp_path, model_dir):
+    frameworks = 'NxD Inference 0.10: no qwen3_5 architecture; vllm-neuron 0.24: no qwen3_5'
+    task = load_task(write_task(tmp_path, model_dir, reference={'correctness_only': True, 'frameworks': frameworks,
+                                                                'tensor_parallel': 2}))
+    assert task.correctness_only and task.frameworks == frameworks and task.reference_tp == 2
+    assert Task.from_json(task.to_json()) == task and not load_task(write_task(tmp_path, model_dir)).correctness_only
+    brief = contract(task, 'optimize', '')
+    assert 'fractions of the hardware bound' in brief and frameworks in brief and 'speedups' not in brief
+    path = tmp_path / 'task.toml'
+    text = (f'name = "m"\n[model]\npath = "{model_dir.name}"\n[agent]\nkind = "claude"\n[reference]\n'
+            f'kind = "transformers-cpu"\nframeworks = "{frameworks}"\n')
+    path.write_text(text)
+    assert load_task(path).correctness_only    # the kind is correctness-only
+    path.write_text(text + 'correctness_only = false\n')
+    with pytest.raises(TaskError, match='is a correctness-only reference'):
+        load_task(path)
 
 
 def test_paths_resolve_next_to_the_task_and_must_exist(tmp_path, model_dir):

@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 
-from enginesmith import acceptance, agents, brief, engine_repo, references, report
+from enginesmith import acceptance, agents, bound, brief, engine_repo, references, report
 from enginesmith.evaluate import EVALUATION_VERSION, Evaluator, Plan, ReferenceFailed, Stopped, rows
 from enginesmith.platforms import current
 from enginesmith.processes import Registry, Watchdog, kill_group
@@ -368,7 +368,8 @@ class Run:
     def plan(self, rounds: int, windows: str, seed: bytes) -> Plan:
         t = self.task
         return Plan(tuple(t.cases()), t.vocab_size, rounds, t.evaluation.warmup, t.evaluation.cooldown_s, t.gates,
-                    t.objective, windows, seed)
+                    t.objective, windows, seed, t.correctness_only,
+                    bound.bounds(t.model, t.lengths, t.output_tokens, t.reference_tp)['cases'])
 
     def _evaluator(self, engine: Path, plan: Plan, directory: Path, stop) -> Evaluator:
         if harness_digest() != self.state['harness']:
@@ -379,7 +380,7 @@ class Run:
         return Evaluator(brief.reference_argv(self.task), [str(engine), '--model', str(self.task.model)], plan,
                          directory, registry=self.registry, log=self.event, stop=stop,
                          reference_controls=self.dir / 'cache' / 'reference-controls.json',
-                         engine_cores=self.task.reference_tp)
+                         engine_cores=self.task.reference_tp, reference_on_device=not self.task.correctness_only)
 
     def _evaluate(self, record: dict) -> None:
         label = record['label']
@@ -450,7 +451,9 @@ class Run:
             best = self.evaluation(s['incumbent'])
             lines += [f'## The current best engine: round {s["incumbent"]}', '',
                       f'Score {best["score"]:.4f}; prefill mean {best["segments"]["prefill"]:.4f}, decode mean '
-                      f'{best["segments"]["decode"]:.4f} (speedups over the reference).', '', brief.case_table(best),
+                      f'{best["segments"]["decode"]:.4f} ('
+                      + ('fractions of the hardware bound' if self.task.correctness_only else
+                         'speedups over the reference') + ').', '', brief.case_table(best),
                       '']
         if record['kind'] == 'repair':
             lines += [f'## Round {record["base_round"]} (the candidate in engine/) failed', '',
@@ -493,7 +496,8 @@ class Run:
         engine = [str(self.round_dir(label) / 'engine'), '--model', str(self.task.model)]
         summary = quality.evaluate(settings, self.task.model, self.task.vocab_size, engine,
                                    brief.reference_argv(self.task), directory, registry=self.registry, stop=stop,
-                                   log=self.event, engine_cores=self.task.reference_tp)
+                                   log=self.event, engine_cores=self.task.reference_tp,
+                                   reference_on_device=not self.task.correctness_only)
         summary.update(round=label, harness=digest)
         (directory / 'summary.json').write_text(json.dumps(summary, indent=2))
         return summary
@@ -508,7 +512,8 @@ class Run:
             result = decode_probe.run([str(self.round_dir(label) / 'engine'), '--model', str(self.task.model)],
                                       self.task.vocab_size, min(self.task.lengths),
                                       max(self.task.output_tokens - 1, 2), directory, self.registry,
-                                      engine_cores=self.task.reference_tp)
+                                      engine_cores=self.task.reference_tp,
+                                      reference_on_device=not self.task.correctness_only)
         except Exception as exc:  # report-only, like task accuracy
             result = {'error': f'{type(exc).__name__}: {exc}'[:2000]}
             self.event(f'decode probe: failed: {exc}')

@@ -27,6 +27,19 @@ def finished_run(tmp_path, model_dir, monkeypatch):
     return run
 
 
+
+def test_a_final_that_did_not_complete_is_not_the_engines_result(finished_run, tmp_path):
+    # It stopped on an error before judging anything (for example a core still held by another process).
+    path = finished_run.dir / 'final' / 'evaluation' / 'result.json'
+    result = json.loads(path.read_text())
+    path.write_text(json.dumps({**result, 'complete': False, 'passed': False, 'score': None, 'segments': None,
+                                'gates': {'allowed': 0, 'total_mismatches': 0, 'total_steps': 0}}))
+    share(finished_run, out=tmp_path / 'out')
+    package = tmp_path / 'out' / 'test-task-round001'
+    assert json.loads((package / 'enginesmith.json').read_text())['final'] is None
+    readme = (package / 'README.md').read_text()
+    assert '(search evaluation)' in readme and 'FAILED' not in readme
+
 def test_share_writes_a_package_without_host_paths(finished_run, tmp_path, model_dir):
     result = share(finished_run, out=tmp_path / 'out')
     package = tmp_path / 'out' / 'test-task-round001'
@@ -167,6 +180,21 @@ def test_share_into_a_collection_keeps_several_engines_in_one_repository(finishe
             share(finished_run, out=tmp_path / 'out', post=True, collection=name)
 
 
+def test_a_collections_index_gives_a_correctness_only_engine_its_fraction_of_the_bound(finished_run, tmp_path):
+    share(finished_run, out=tmp_path / 'out')
+    info = json.loads((tmp_path / 'out' / 'test-task-round001' / 'enginesmith.json').read_text())
+    clone = tmp_path / 'collection'
+    for name, only in (('timed', False), ('bounded', True)):
+        (clone / name).mkdir(parents=True)
+        harness = {**info['harness'], 'correctness_only': only}
+        final = {**info['final'], 'score': 0.25}
+        (clone / name / 'enginesmith.json').write_text(json.dumps({**info, 'name': name, 'harness': harness,
+                                                                   'machine': {'accelerator': 'gpu'}, 'final': final}))
+    readme = share_module.collection_readme('alice/engines', clone)
+    assert '| [bounded](bounded/) | model | gpu | 0.250 of the hardware bound (held-out final) |' in readme
+    assert '| [timed](timed/) | model | gpu | 0.25x the reference (held-out final) |' in readme
+
+
 @pytest.mark.parametrize('fails', [False, True])
 def test_collection_cleanup_stays_inside_its_temporary_directory(tmp_path, monkeypatch, fails):
     sentinel = tmp_path / 'unrelated.txt'
@@ -274,3 +302,23 @@ def test_share_reports_the_machine_and_reference_the_run_recorded(finished_run, 
     assert info['harness']['reference'] == 'sglang' and info['harness']['reference_version'] == '0.5.22'
     readme = (package / 'README.md').read_text()
     assert '## Speed against sglang' in readme and 'mlx-lm' not in readme and 'your own Mac' not in readme
+
+
+def test_a_correctness_only_run_reports_times_and_the_bound_not_a_speedup(tmp_path, model_dir, monkeypatch):
+    monkeypatch.setenv('FAKE_AGENT_PLAN', json.dumps({'001': ['--speed', '2']}))
+    frameworks = 'NxD Inference 0.10: wrong tokens from step 1'
+    task = load_task(write_task(tmp_path, model_dir, budget={'sessions': 1},
+                                reference={'correctness_only': True, 'frameworks': frameworks}))
+    run = Run.create(task, tmp_path / 'runs')
+    run.drive()
+    assert run.state['final']['passed'] and run.state['final']['score'] > 0
+    report = json.loads((run.dir / 'report.json').read_text())
+    assert report['correctness_only'] and report['best']['cases'][0]['prefill_speedup'] is None
+    # The test model has no safetensors: the score uses the nominal bound, and no fraction is reported.
+    assert report['best']['cases'][0]['decode_fraction'] is None and report['best']['cases'][0]['ttft_ms']
+    html = (run.dir / 'report.html').read_text()
+    assert 'no speed baseline' in html and 'prefill speedup' not in html and 'not computed' in html
+    share(run, out=tmp_path / 'out')
+    readme = (tmp_path / 'out' / 'test-task-round001' / 'README.md').read_text()
+    assert 'no framework baseline' in readme and frameworks in readme and 'Speed against' not in readme
+    assert 'x faster' not in readme and 'as fast as' not in readme and '| not computed | not computed |' in readme

@@ -47,3 +47,10 @@ when the gates allow rounding-level differences, but every difference must be me
   on the next request (prefill +2 to +5% after switching to a non-blocking read with a 10 s spin).
 - **libnrt may print to stdout** (warnings): write protocol replies to a private copy of the original stdout and
   point file descriptor 1 at stderr before `nrt_init`.
+- **Several decode steps in one NEFF: watch the per-partition buffers** (Gemma-3-4B, one core, near the bandwidth
+  floor). A NEFF running two steps back to back was first 15% slower than two launches of the one-step NEFF (30.3 ms
+  against 2 x 13.1 ms at a 4,608-key window); the cause was a persistent SBUF buffer for the K/V window (72 KB per
+  partition) that the two-step body kept alive. Without it the two-step NEFF took 25.5 ms, 12.7 ms per step (-2.9%),
+  and running 2 steps per NEFF at every bucket gave +0.5 to +2.2% decode. Going from 2 to 4 steps per NEFF added only
+  0.2 to 0.3%: by then the launch overhead is already gone. Each step is still one forward pass per
+  generated token (check with `enginesmith decode-probe`).
