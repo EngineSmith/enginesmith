@@ -62,6 +62,12 @@ def main(argv=None) -> int:
                                      'model on this machine with a coding agent.')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('doctor', help='machine, toolchain and agent facts (JSON)')
+    p = sub.add_parser('service-compare', help='diagnostic: compare compatible paired service measurements')
+    p.add_argument('baseline', type=Path)
+    p.add_argument('candidate', type=Path)
+    p.add_argument('--max-ttft-ms', type=float, required=True)
+    p.add_argument('--max-itl-ms', type=float, required=True)
+    p.add_argument('--max-error-fraction', type=float, required=True)
     p = sub.add_parser('probe', help='model facts and an estimate of the prompt lengths that fit (JSON)')
     p.add_argument('model', type=Path)
     p = sub.add_parser('validate', help='check a task file (JSON)')
@@ -139,6 +145,10 @@ def main(argv=None) -> int:
         if args.command == 'doctor':
             from enginesmith.setup_tools import doctor
             emit(doctor())
+        elif args.command == 'service-compare':
+            from enginesmith.service_comparison import compare, load
+            emit(compare(load(args.baseline), load(args.candidate), max_ttft_ms=args.max_ttft_ms,
+                         max_itl_ms=args.max_itl_ms, max_error_fraction=args.max_error_fraction))
         elif args.command == 'probe':
             from enginesmith.setup_tools import probe
             emit(probe(args.model))
